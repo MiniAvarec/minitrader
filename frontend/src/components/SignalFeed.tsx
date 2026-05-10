@@ -1,18 +1,36 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
-import { api, SignalRow } from "../api/client";
+import { useEffect, useState } from "react";
+import { ChevronDown, ChevronUp, Newspaper } from "lucide-react";
+import { toast } from "sonner";
+import { api, SignalRow } from "@/api/client";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 function fmt(n: number | null | undefined, d = 2) {
   return n == null ? "—" : n.toFixed(d);
 }
 
-export default function SignalFeed({ live }: { live: any | null }) {
+export default function SignalFeed({
+  live,
+  compact = false,
+}: {
+  live: any | null;
+  compact?: boolean;
+}) {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery<SignalRow[]>({
     queryKey: ["signals"],
     queryFn: async () => (await api.get("/signals?limit=50")).data,
     refetchInterval: 60_000,
   });
+  const [openId, setOpenId] = useState<number | null>(null);
 
   useEffect(() => {
     if (live && live.event === "signal") {
@@ -23,88 +41,187 @@ export default function SignalFeed({ live }: { live: any | null }) {
   async function execute(id: number) {
     try {
       const r = await api.post("/orders/execute", { signal_id: id });
-      if (r.data.ok) alert(`order placed: ${r.data.exchange_order_id ?? r.data.order_id}`);
-      else alert(`refused: ${r.data.reason}`);
+      if (r.data.ok)
+        toast.success(`Order placed: ${r.data.exchange_order_id ?? r.data.order_id}`);
+      else toast.error(`Refused: ${r.data.reason}`);
     } catch (e: any) {
-      alert(e?.response?.data?.detail || "failed");
+      toast.error(e?.response?.data?.detail || "failed");
     }
   }
 
-  if (isLoading) return <div>loading…</div>;
+  if (isLoading)
+    return (
+      <div className="text-sm font-mono uppercase tracking-wider text-muted-foreground">
+        loading…
+      </div>
+    );
+
+  const rows = data ?? [];
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+        No signals yet — they appear as soon as the engine fires.
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-2">
-      {(data ?? []).map((s) => (
-        <div
-          key={s.id}
-          className="border border-zinc-800 rounded p-3 bg-zinc-900 grid grid-cols-12 gap-3 items-center"
-        >
-          <div className="col-span-2 flex items-center gap-2">
-            <span
-              className={`px-2 py-0.5 rounded text-xs font-bold ${
-                s.side === "buy" ? "bg-emerald-700 text-white" : "bg-rose-700 text-white"
-              }`}
-            >
-              {s.side.toUpperCase()}
-            </span>
-            <div className="flex flex-col leading-tight min-w-0">
-              <span className="font-mono">{s.symbol}</span>
-              {s.strategy_name && (
-                <span className="text-[10px] text-zinc-500 truncate">{s.strategy_name}</span>
+    <TooltipProvider>
+      <div className="flex flex-col divide-y divide-border rounded-md border border-border bg-card">
+        {rows.map((s) => {
+          const open = openId === s.id;
+          const buy = s.side === "buy";
+          return (
+            <div key={s.id} className="flex flex-col">
+              <div
+                className={cn(
+                  "grid items-center gap-2 px-3 py-2",
+                  compact
+                    ? "grid-cols-[auto_1fr_auto] gap-3"
+                    : "grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-3",
+                )}
+              >
+                <Badge variant={buy ? "success" : "destructive"} className="w-12 justify-center">
+                  {buy ? "BUY" : "SELL"}
+                </Badge>
+
+                <div className="flex flex-col leading-tight min-w-0">
+                  <span className="font-mono text-sm font-semibold tracking-wider">
+                    {s.symbol}
+                  </span>
+                  {s.strategy_name && (
+                    <span className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {s.strategy_name}
+                    </span>
+                  )}
+                </div>
+
+                {!compact && (
+                  <div className="flex items-baseline gap-3 text-xs">
+                    <span className="text-muted-foreground">conf</span>
+                    <span className="num text-sm font-semibold">{s.confidence.toFixed(0)}</span>
+                  </div>
+                )}
+
+                {!compact && (
+                  <div className="hidden md:flex items-baseline gap-2 text-xs">
+                    <span className="text-muted-foreground">@</span>
+                    <span className="num">{fmt(s.entry, 2)}</span>
+                    {s.sl != null && (
+                      <span className="text-muted-foreground num">
+                        sl {fmt(s.sl, 2)}
+                      </span>
+                    )}
+                    {s.tp != null && (
+                      <span className="text-muted-foreground num">
+                        tp {fmt(s.tp, 2)}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-1">
+                  {!compact && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => execute(s.id)}
+                      disabled={s.status !== "new" && s.status !== "dispatched"}
+                      className="h-7 text-[10px]"
+                    >
+                      Execute
+                    </Button>
+                  )}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setOpenId(open ? null : s.id)}
+                    className="h-7 w-7"
+                  >
+                    {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </Button>
+                </div>
+              </div>
+
+              {open && (
+                <div className="border-t border-border bg-muted/30 px-3 py-2 text-xs">
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {s.breakdown.map((b) => (
+                      <Tooltip key={b.tf}>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={cn(
+                              "rounded-sm px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider",
+                              b.vote > 0
+                                ? "bg-success/15 text-success"
+                                : b.vote < 0
+                                  ? "bg-destructive/15 text-destructive"
+                                  : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {b.tf}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div className="font-mono text-[10px] uppercase tracking-wider">
+                            <div>RSI {fmt(b.rsi)}</div>
+                            <div>MACDh {fmt(b.macd_hist)}</div>
+                            <div>EMA20 {fmt(b.ema20)}</div>
+                            <div>EMA50 {fmt(b.ema50)}</div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
+                  {compact && (
+                    <div className="flex items-baseline gap-2 num text-xs mb-2">
+                      <span className="text-muted-foreground">@</span>
+                      <span>{fmt(s.entry, 2)}</span>
+                      {s.sl != null && (
+                        <span className="text-muted-foreground">sl {fmt(s.sl, 2)}</span>
+                      )}
+                      {s.tp != null && (
+                        <span className="text-muted-foreground">tp {fmt(s.tp, 2)}</span>
+                      )}
+                    </div>
+                  )}
+                  {s.news_refs.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      {s.news_refs.map((n, i) => (
+                        <a
+                          key={i}
+                          href={n.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-start gap-1.5 text-muted-foreground hover:text-foreground"
+                        >
+                          <Newspaper className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span className="leading-tight">{n.headline}</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                    <span>{new Date(s.created_at).toLocaleString()}</span>
+                    <span>STATUS · {s.status}</span>
+                  </div>
+                  {compact && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => execute(s.id)}
+                      disabled={s.status !== "new" && s.status !== "dispatched"}
+                      className="mt-2 h-7 w-full text-[10px]"
+                    >
+                      Execute
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
-          </div>
-          <div className="col-span-1 text-sm">conf {s.confidence.toFixed(0)}</div>
-          <div className="col-span-2 text-sm">entry <span className="font-mono">{fmt(s.entry, 2)}</span></div>
-          <div className="col-span-1 text-sm">SL <span className="font-mono">{fmt(s.sl, 2)}</span></div>
-          <div className="col-span-1 text-sm">TP <span className="font-mono">{fmt(s.tp, 2)}</span></div>
-          <div className="col-span-3 text-xs text-zinc-400 flex flex-wrap gap-1">
-            {s.breakdown.map((b) => (
-              <span
-                key={b.tf}
-                className={`px-1.5 py-0.5 rounded ${
-                  b.vote > 0
-                    ? "bg-emerald-900/60 text-emerald-300"
-                    : b.vote < 0
-                    ? "bg-rose-900/60 text-rose-300"
-                    : "bg-zinc-800 text-zinc-400"
-                }`}
-                title={`RSI ${fmt(b.rsi)} MACDh ${fmt(b.macd_hist)}`}
-              >
-                {b.tf}
-              </span>
-            ))}
-          </div>
-          <div className="col-span-2 flex justify-end gap-2">
-            <button
-              onClick={() => execute(s.id)}
-              disabled={s.status !== "new" && s.status !== "dispatched"}
-              className="text-xs bg-zinc-100 text-zinc-900 px-2 py-1 rounded disabled:opacity-50"
-            >
-              Execute
-            </button>
-            <span className="text-xs text-zinc-500 self-center">{s.status}</span>
-          </div>
-          {s.news_refs.length > 0 && (
-            <div className="col-span-12 text-xs text-zinc-400 mt-1">
-              {s.news_refs.map((n, i) => (
-                <a
-                  key={i}
-                  href={n.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline mr-2"
-                >
-                  {n.headline}
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
-      {data && data.length === 0 && (
-        <div className="text-zinc-500 text-sm">No signals yet — they appear as soon as the engine fires.</div>
-      )}
-    </div>
+          );
+        })}
+      </div>
+    </TooltipProvider>
   );
 }

@@ -1,5 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, OrderRow } from "../api/client";
+import { AlertCircle, TrendingDown, TrendingUp } from "lucide-react";
+import { api, OrderRow } from "@/api/client";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 type LivePositions = {
   usdt_balance: number;
@@ -28,92 +40,152 @@ export default function Positions() {
     refetchInterval: 30_000,
   });
 
-  return (
-    <div className="grid grid-cols-1 gap-6 max-w-6xl">
-      <section>
-        <h2 className="text-sm uppercase tracking-wide text-zinc-400 mb-2">
-          Live positions {positions.data ? `· balance $${positions.data.usdt_balance.toFixed(2)}` : ""}
-        </h2>
-        {positions.error && (
-          <div className="text-sm text-rose-400">
-            Could not fetch positions — add Binance API keys in Settings.
-          </div>
-        )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-zinc-500">
-              <tr>
-                <th className="text-left p-2">Symbol</th>
-                <th className="text-left p-2">Side</th>
-                <th className="text-right p-2">Qty</th>
-                <th className="text-right p-2">Entry</th>
-                <th className="text-right p-2">Mark</th>
-                <th className="text-right p-2">uPnL</th>
-                <th className="text-right p-2">Lev</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(positions.data?.positions ?? []).map((p, i) => (
-                <tr key={i} className="border-t border-zinc-800">
-                  <td className="p-2 font-mono">{p.symbol}</td>
-                  <td className="p-2">{p.side}</td>
-                  <td className="p-2 text-right font-mono">{p.contracts}</td>
-                  <td className="p-2 text-right font-mono">{p.entry_price.toFixed(2)}</td>
-                  <td className="p-2 text-right font-mono">{p.mark_price.toFixed(2)}</td>
-                  <td
-                    className={`p-2 text-right font-mono ${
-                      p.unrealized_pnl >= 0 ? "text-emerald-400" : "text-rose-400"
-                    }`}
-                  >
-                    {p.unrealized_pnl.toFixed(2)}
-                  </td>
-                  <td className="p-2 text-right">{p.leverage}x</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+  const livePos = positions.data?.positions ?? [];
+  const orderRows = orders.data ?? [];
 
-      <section>
-        <h2 className="text-sm uppercase tracking-wide text-zinc-400 mb-2">Order history</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-zinc-500">
-              <tr>
-                <th className="text-left p-2">When</th>
-                <th className="text-left p-2">Symbol</th>
-                <th className="text-left p-2">Side</th>
-                <th className="text-right p-2">Qty</th>
-                <th className="text-right p-2">Notional</th>
-                <th className="text-right p-2">Entry</th>
-                <th className="text-right p-2">PnL</th>
-                <th className="text-left p-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(orders.data ?? []).map((o) => (
-                <tr key={o.id} className="border-t border-zinc-800">
-                  <td className="p-2 text-zinc-400">{new Date(o.created_at).toLocaleString()}</td>
-                  <td className="p-2 font-mono">{o.symbol}</td>
-                  <td className="p-2">{o.side}</td>
-                  <td className="p-2 text-right font-mono">{o.qty}</td>
-                  <td className="p-2 text-right font-mono">${o.notional_usdt.toFixed(2)}</td>
-                  <td className="p-2 text-right font-mono">{o.entry_price.toFixed(2)}</td>
-                  <td
-                    className={`p-2 text-right font-mono ${
-                      o.realized_pnl_usdt >= 0 ? "text-emerald-400" : "text-rose-400"
-                    }`}
-                  >
-                    {o.realized_pnl_usdt.toFixed(2)}
-                  </td>
-                  <td className="p-2">{o.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+  return (
+    <div className="flex flex-col gap-4 max-w-7xl">
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+          <div>
+            <CardTitle className="font-mono uppercase tracking-wider">
+              Live positions
+            </CardTitle>
+            {positions.data && (
+              <div className="text-xs text-muted-foreground num mt-0.5">
+                Balance ${positions.data.usdt_balance.toFixed(2)} USDT
+              </div>
+            )}
+          </div>
+          {positions.error && (
+            <Badge variant="destructive" className="gap-1">
+              <AlertCircle className="h-3 w-3" />
+              No API key
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          {positions.error ? (
+            <div className="p-6 text-sm text-muted-foreground">
+              Could not fetch positions — add Binance API keys in Settings.
+            </div>
+          ) : livePos.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              No open positions.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Side</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Entry</TableHead>
+                  <TableHead className="text-right">Mark</TableHead>
+                  <TableHead className="text-right">uPnL</TableHead>
+                  <TableHead className="text-right">Lev</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {livePos.map((p, i) => {
+                  const up = p.unrealized_pnl >= 0;
+                  return (
+                    <TableRow key={i}>
+                      <TableCell className="font-mono font-semibold">{p.symbol}</TableCell>
+                      <TableCell className="uppercase">
+                        <Badge
+                          variant={p.side.toLowerCase() === "long" || p.side.toLowerCase() === "buy" ? "success" : "destructive"}
+                        >
+                          {p.side}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right num">{p.contracts}</TableCell>
+                      <TableCell className="text-right num">{p.entry_price.toFixed(2)}</TableCell>
+                      <TableCell className="text-right num">{p.mark_price.toFixed(2)}</TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right num inline-flex items-center justify-end gap-1 w-full",
+                          up ? "text-success" : "text-destructive",
+                        )}
+                      >
+                        {up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                        {p.unrealized_pnl.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right num">{p.leverage}x</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-mono uppercase tracking-wider">
+            Order history
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {orderRows.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">
+              No orders yet.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Symbol</TableHead>
+                  <TableHead>Side</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Notional</TableHead>
+                  <TableHead className="text-right">Entry</TableHead>
+                  <TableHead className="text-right">PnL</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {orderRows.map((o) => {
+                  const up = o.realized_pnl_usdt >= 0;
+                  return (
+                    <TableRow key={o.id}>
+                      <TableCell className="text-muted-foreground text-xs num">
+                        {new Date(o.created_at).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="font-mono font-semibold">{o.symbol}</TableCell>
+                      <TableCell>
+                        <Badge variant={o.side === "buy" ? "success" : "destructive"}>
+                          {o.side.toUpperCase()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right num">{o.qty}</TableCell>
+                      <TableCell className="text-right num">
+                        ${o.notional_usdt.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right num">
+                        {o.entry_price.toFixed(2)}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right num",
+                          up ? "text-success" : "text-destructive",
+                        )}
+                      >
+                        {o.realized_pnl_usdt.toFixed(2)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="muted">{o.status}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

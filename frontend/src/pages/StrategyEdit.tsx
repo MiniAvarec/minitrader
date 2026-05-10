@@ -1,9 +1,23 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, BacktestResult, StrategyDetail } from "../api/client";
-import StrategyEditor from "../components/StrategyEditor";
-import BacktestPanel from "../components/BacktestPanel";
+import { ArrowLeft, CheckCircle2, Lock, Play, Save, XCircle } from "lucide-react";
+import { toast } from "sonner";
+import { api, BacktestResult, StrategyDetail } from "@/api/client";
+import StrategyEditor from "@/components/StrategyEditor";
+import BacktestPanel from "@/components/BacktestPanel";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function StrategyEdit() {
   const { id } = useParams<{ id: string }>();
@@ -17,8 +31,10 @@ export default function StrategyEdit() {
 
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [validateMsg, setValidateMsg] = useState<string | null>(null);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [validateMsg, setValidateMsg] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
   const [bt, setBt] = useState<BacktestResult | null>(null);
   const [btSymbol, setBtSymbol] = useState("BTCUSDT");
   const [btHours, setBtHours] = useState(168);
@@ -31,30 +47,34 @@ export default function StrategyEdit() {
     }
   }, [strategy]);
 
-  if (isLoading || !strategy) return <div>loading…</div>;
+  if (isLoading || !strategy)
+    return (
+      <div className="text-sm font-mono uppercase tracking-wider text-muted-foreground">
+        loading…
+      </div>
+    );
   const editable = !strategy.is_builtin;
 
   async function validate() {
-    setValidateMsg(null);
     const r = await api.post("/strategies/validate", { code });
     if (r.data.ok) {
-      setValidateMsg(
-        `OK · name: ${r.data.name} · timeframes: ${(r.data.timeframes || []).join(", ") || "—"}`,
-      );
+      setValidateMsg({
+        ok: true,
+        text: `OK · ${r.data.name} · TFs: ${(r.data.timeframes || []).join(", ") || "—"}`,
+      });
     } else {
-      setValidateMsg(`error: ${r.data.error}`);
+      setValidateMsg({ ok: false, text: r.data.error });
     }
   }
 
   async function save() {
-    setSaveMsg(null);
     try {
       await api.put(`/strategies/${id}`, { code, name });
       qc.invalidateQueries({ queryKey: ["strategies"] });
       qc.invalidateQueries({ queryKey: ["strategy", id] });
-      setSaveMsg("saved");
+      toast.success("Saved");
     } catch (e: any) {
-      setSaveMsg(e?.response?.data?.detail || "failed");
+      toast.error(e?.response?.data?.detail || "failed");
     }
   }
 
@@ -69,79 +89,122 @@ export default function StrategyEdit() {
       });
       setBt(r.data);
     } catch (e: any) {
-      alert(e?.response?.data?.detail || "backtest failed");
+      toast.error(e?.response?.data?.detail || "backtest failed");
     } finally {
       setBtBusy(false);
     }
   }
 
   return (
-    <div className="grid grid-cols-12 gap-4 max-w-7xl">
-      <div className="col-span-7 flex flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <button
+    <div className="grid grid-cols-12 gap-4 max-w-[1600px]">
+      <div className="col-span-12 xl:col-span-7 flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => nav("/strategies")}
-            className="text-xs px-2 py-1 border border-zinc-700 rounded"
+            className="h-8"
           >
-            ← Back
-          </button>
-          <input
+            <ArrowLeft className="mr-1 h-3 w-3" />
+            Back
+          </Button>
+          <Input
             disabled={!editable}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 flex-1 disabled:opacity-60"
+            className="flex-1 font-mono"
           />
           {strategy.is_builtin && (
-            <span className="text-xs px-2 py-1 bg-zinc-800 rounded">read-only built-in</span>
+            <Badge variant="muted" className="gap-1">
+              <Lock className="h-3 w-3" />
+              read-only
+            </Badge>
           )}
         </div>
-        <StrategyEditor value={code} onChange={setCode} readOnly={!editable} />
-        <div className="flex items-center gap-2">
-          <button onClick={validate} className="text-sm px-3 py-1 border border-zinc-700 rounded">
+
+        <Card>
+          <CardContent className="p-0">
+            <StrategyEditor value={code} onChange={setCode} readOnly={!editable} />
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={validate}>
+            <CheckCircle2 className="mr-1 h-3 w-3" />
             Validate
-          </button>
+          </Button>
           {editable && (
-            <button onClick={save} className="text-sm px-3 py-1 bg-emerald-700 rounded">
+            <Button size="sm" onClick={save}>
+              <Save className="mr-1 h-3 w-3" />
               Save
-            </button>
+            </Button>
           )}
-          {validateMsg && <span className="text-xs text-zinc-300">{validateMsg}</span>}
-          {saveMsg && <span className="text-xs text-zinc-300">{saveMsg}</span>}
+          {validateMsg && (
+            <Badge
+              variant={validateMsg.ok ? "success" : "destructive"}
+              className="gap-1 normal-case"
+            >
+              {validateMsg.ok ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : (
+                <XCircle className="h-3 w-3" />
+              )}
+              <span className="font-mono text-[10px]">{validateMsg.text}</span>
+            </Badge>
+          )}
         </div>
       </div>
 
-      <div className="col-span-5 flex flex-col gap-3">
-        <div className="border border-zinc-800 rounded p-3">
-          <h3 className="text-sm uppercase tracking-wide text-zinc-400 mb-2">Backtest</h3>
-          <div className="flex items-center gap-2 mb-3">
-            <select
-              value={btSymbol}
-              onChange={(e) => setBtSymbol(e.target.value)}
-              className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1"
-            >
-              <option>BTCUSDT</option>
-              <option>ETHUSDT</option>
-            </select>
-            <select
-              value={btHours}
-              onChange={(e) => setBtHours(parseInt(e.target.value))}
-              className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1"
-            >
-              <option value={24}>24h</option>
-              <option value={72}>3d</option>
-              <option value={168}>7d</option>
-              <option value={720}>30d</option>
-            </select>
-            <button
-              onClick={runBacktest}
-              disabled={btBusy}
-              className="text-sm px-3 py-1 bg-emerald-700 rounded disabled:opacity-60"
-            >
-              {btBusy ? "running…" : "Run"}
-            </button>
-          </div>
-          <BacktestPanel result={bt} />
-        </div>
+      <div className="col-span-12 xl:col-span-5 flex flex-col gap-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="font-mono uppercase tracking-wider">
+              Backtest
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="bt-symbol">Symbol</Label>
+                <Select value={btSymbol} onValueChange={setBtSymbol}>
+                  <SelectTrigger id="bt-symbol" className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BTCUSDT">BTCUSDT</SelectItem>
+                    <SelectItem value="ETHUSDT">ETHUSDT</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="bt-hours">Window</Label>
+                <Select
+                  value={String(btHours)}
+                  onValueChange={(v) => setBtHours(parseInt(v))}
+                >
+                  <SelectTrigger id="bt-hours" className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24">24h</SelectItem>
+                    <SelectItem value="72">3d</SelectItem>
+                    <SelectItem value="168">7d</SelectItem>
+                    <SelectItem value="720">30d</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={runBacktest}
+                disabled={btBusy}
+                className="ml-auto self-end"
+              >
+                <Play className="mr-1 h-3 w-3" />
+                {btBusy ? "running…" : "Run"}
+              </Button>
+            </div>
+            <BacktestPanel result={bt} />
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
