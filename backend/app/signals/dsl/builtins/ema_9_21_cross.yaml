@@ -1,0 +1,23 @@
+name: "EMA 9/21 Crossover"
+description: |
+  Simplest trend follower. Buy when EMA9 crosses above EMA21; mirror for short.
+  Uses 3m bars (a tracked timeframe) for fast scalp signals.
+timeframes: ["3m"]
+cooldown_min: 5
+params:
+  fast: 9
+  slow: 21
+
+entry:
+  long:
+    lhs: { ema: ["3m", 9] }
+    op: "crosses_above"
+    rhs: { ema: ["3m", 21] }
+  short:
+    lhs: { ema: ["3m", 9] }
+    op: "crosses_below"
+    rhs: { ema: ["3m", 21] }
+
+sl: { atr_mult: 1.0, tf: "3m" }
+tp: { atr_mult: 2.0, tf: "3m" }
+news_modifier: { allow_veto: true, allow_boost: false }

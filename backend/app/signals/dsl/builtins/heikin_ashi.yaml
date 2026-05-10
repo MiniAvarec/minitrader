@@ -1,0 +1,23 @@
+name: "Heikin-Ashi Trend"
+description: |
+  Smoothed-candle trend follower. Buy when HA close > HA open (bullish bar)
+  for two bars in a row AND price > EMA50. Mirror for shorts.
+timeframes: ["15m"]
+cooldown_min: 15
+params: {}
+
+entry:
+  long:
+    all_of:
+      - { lhs: { ha_close: ["15m"] }, op: ">", rhs: { ha_open: ["15m"] } }
+      - { lhs: { close: ["15m"] }, op: ">", rhs: { ema: ["15m", 50] } }
+      - { lhs: { rsi: ["15m", 14] }, op: ">", rhs: 50 }
+  short:
+    all_of:
+      - { lhs: { ha_close: ["15m"] }, op: "<", rhs: { ha_open: ["15m"] } }
+      - { lhs: { close: ["15m"] }, op: "<", rhs: { ema: ["15m", 50] } }
+      - { lhs: { rsi: ["15m", 14] }, op: "<", rhs: 50 }
+
+sl: { atr_mult: 1.5, tf: "15m" }
+tp: { atr_mult: 2.5, tf: "15m" }
+news_modifier: { allow_veto: true, allow_boost: true }

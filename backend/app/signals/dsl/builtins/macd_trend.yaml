@@ -1,0 +1,21 @@
+name: "MACD Trend Following"
+description: |
+  Buy on MACD line crossing above signal AND price above the 50 EMA (trend filter).
+  Mirror for shorts.
+timeframes: ["15m"]
+cooldown_min: 10
+params: {}
+
+entry:
+  long:
+    all_of:
+      - { lhs: { macd_line: ["15m"] }, op: "crosses_above", rhs: { macd_signal: ["15m"] } }
+      - { lhs: { close: ["15m"] }, op: ">", rhs: { ema: ["15m", 50] } }
+  short:
+    all_of:
+      - { lhs: { macd_line: ["15m"] }, op: "crosses_below", rhs: { macd_signal: ["15m"] } }
+      - { lhs: { close: ["15m"] }, op: "<", rhs: { ema: ["15m", 50] } }
+
+sl: { atr_mult: 1.5, tf: "15m" }
+tp: { atr_mult: 3.0, tf: "15m" }
+news_modifier: { allow_veto: true, allow_boost: true }

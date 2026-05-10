@@ -1,0 +1,24 @@
+name: "VWAP Bounce (Intraday)"
+description: |
+  Mean-reversion to volume-weighted average price.
+  Buy when price drops below VWAP AND RSI is oversold (rebound expected).
+  Mirror for shorts. Tight stops.
+timeframes: ["15m"]
+cooldown_min: 10
+params:
+  rsi_oversold: 35
+  rsi_overbought: 65
+
+entry:
+  long:
+    all_of:
+      - { lhs: { close: ["15m"] }, op: "<", rhs: { vwap: ["15m"] } }
+      - { lhs: { rsi: ["15m", 14] }, op: "<", rhs: { param: rsi_oversold } }
+  short:
+    all_of:
+      - { lhs: { close: ["15m"] }, op: ">", rhs: { vwap: ["15m"] } }
+      - { lhs: { rsi: ["15m", 14] }, op: ">", rhs: { param: rsi_overbought } }
+
+sl: { pct: 0.005 }
+tp: { pct: 0.0075 }
+news_modifier: { allow_veto: true, allow_boost: false }

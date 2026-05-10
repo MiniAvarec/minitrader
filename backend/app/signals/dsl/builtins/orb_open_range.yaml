@@ -1,0 +1,25 @@
+name: "Opening Range Breakout"
+description: |
+  Define the first bar of the UTC day on the 1h chart. Within hour 0 (00:00–00:59 UTC)
+  no signals fire. After hour 0, buy if 15m close exceeds the donchian_high(4) of the
+  prior 4 fifteen-minute bars (i.e. the opening range), short the mirror.
+
+  This is a pragmatic adaptation of ORB to crypto-24/7 markets.
+timeframes: ["15m", "1h"]
+cooldown_min: 30
+params:
+  range_bars: 4
+
+entry:
+  long:
+    all_of:
+      - { lhs: { hour_of_day_utc: [] }, op: ">", rhs: 0 }
+      - { lhs: { close: ["15m"] }, op: ">", rhs: { donchian_high: ["15m", 4] } }
+  short:
+    all_of:
+      - { lhs: { hour_of_day_utc: [] }, op: ">", rhs: 0 }
+      - { lhs: { close: ["15m"] }, op: "<", rhs: { donchian_low: ["15m", 4] } }
+
+sl: { atr_mult: 1.5, tf: "15m" }
+tp: { atr_mult: 3.0, tf: "15m" }
+news_modifier: { allow_veto: true, allow_boost: true }

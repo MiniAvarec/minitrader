@@ -1,0 +1,26 @@
+name: "Bollinger Band Reversion"
+description: |
+  Range scalping: buy when price touches the lower band AND RSI is oversold;
+  short upper band + overbought. Best in consolidation, stops are tight.
+timeframes: ["15m"]
+cooldown_min: 15
+params:
+  bb_len: 20
+  bb_std: 2.0
+  rsi_len: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+
+entry:
+  long:
+    all_of:
+      - { lhs: { close: ["15m"] }, op: "<=", rhs: { bb_lower: ["15m", 20, 2.0] } }
+      - { lhs: { rsi: ["15m", 14] }, op: "<", rhs: { param: rsi_oversold } }
+  short:
+    all_of:
+      - { lhs: { close: ["15m"] }, op: ">=", rhs: { bb_upper: ["15m", 20, 2.0] } }
+      - { lhs: { rsi: ["15m", 14] }, op: ">", rhs: { param: rsi_overbought } }
+
+sl: { atr_mult: 1.2, tf: "15m" }
+tp: { atr_mult: 1.8, tf: "15m" }
+news_modifier: { allow_veto: true, allow_boost: false }

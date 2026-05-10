@@ -1,0 +1,24 @@
+name: "RSI Mean Reversion"
+description: |
+  Classic mean-reversion. Buy oversold (RSI < oversold) with MACD histogram
+  rising (positive); sell overbought (RSI > overbought) with histogram falling.
+  Best on 5–15m in ranging conditions.
+timeframes: ["15m"]
+cooldown_min: 15
+params:
+  rsi_oversold: 30
+  rsi_overbought: 70
+
+entry:
+  long:
+    all_of:
+      - { lhs: { rsi: ["15m", 14] }, op: "<", rhs: { param: rsi_oversold } }
+      - { lhs: { macd_hist: ["15m"] }, op: ">", rhs: 0 }
+  short:
+    all_of:
+      - { lhs: { rsi: ["15m", 14] }, op: ">", rhs: { param: rsi_overbought } }
+      - { lhs: { macd_hist: ["15m"] }, op: "<", rhs: 0 }
+
+sl: { atr_mult: 1.5, tf: "15m" }
+tp: { atr_mult: 2.5, tf: "15m" }
+news_modifier: { allow_veto: true, allow_boost: true }

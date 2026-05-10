@@ -1,0 +1,22 @@
+name: "Donchian Breakout"
+description: |
+  Trend-follow breakout. Buy when close exceeds the previous N-bar high;
+  short when close breaks the previous N-bar low. ATR-trailing-style stops.
+timeframes: ["1h"]
+cooldown_min: 60
+params:
+  length: 20
+
+entry:
+  long:
+    lhs: { close: ["1h"] }
+    op: ">"
+    rhs: { donchian_high: ["1h", 20] }
+  short:
+    lhs: { close: ["1h"] }
+    op: "<"
+    rhs: { donchian_low: ["1h", 20] }
+
+sl: { atr_mult: 2.0, tf: "1h" }
+tp: { atr_mult: 4.0, tf: "1h" }
+news_modifier: { allow_veto: true, allow_boost: true }

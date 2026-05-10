@@ -1,0 +1,30 @@
+name: "Multi-TF Confluence"
+description: |
+  Buy when EMA stack is bullish (close > EMA20 > EMA50) on the 15m and 1h
+  AND RSI(15m) is not overbought AND MACD histogram is positive on 15m.
+  Mirror logic for shorts. This is the v1 default strategy.
+timeframes: ["1m", "3m", "15m", "1h"]
+cooldown_min: 10
+params:
+  rsi_overbought: 70
+  rsi_oversold: 30
+
+entry:
+  long:
+    all_of:
+      - { lhs: { close: ["15m"] }, op: ">", rhs: { ema: ["15m", 20] } }
+      - { lhs: { ema: ["15m", 20] }, op: ">", rhs: { ema: ["15m", 50] } }
+      - { lhs: { close: ["1h"] }, op: ">", rhs: { ema: ["1h", 20] } }
+      - { lhs: { macd_hist: ["15m"] }, op: ">", rhs: 0 }
+      - { lhs: { rsi: ["15m", 14] }, op: "<", rhs: { param: rsi_overbought } }
+  short:
+    all_of:
+      - { lhs: { close: ["15m"] }, op: "<", rhs: { ema: ["15m", 20] } }
+      - { lhs: { ema: ["15m", 20] }, op: "<", rhs: { ema: ["15m", 50] } }
+      - { lhs: { close: ["1h"] }, op: "<", rhs: { ema: ["1h", 20] } }
+      - { lhs: { macd_hist: ["15m"] }, op: "<", rhs: 0 }
+      - { lhs: { rsi: ["15m", 14] }, op: ">", rhs: { param: rsi_oversold } }
+
+sl: { atr_mult: 1.5, tf: "15m" }
+tp: { atr_mult: 2.5, tf: "15m" }
+news_modifier: { allow_veto: true, allow_boost: true }
