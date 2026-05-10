@@ -76,37 +76,39 @@ export default function BacktestPanel({ result }: { result: BacktestResult | nul
     }
   }, [result]);
 
-  if (!result)
-    return (
-      <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Run a backtest to see results.
-      </div>
-    );
-
-  const winColor = result.win_rate >= 0.5 ? "text-success" : "text-destructive";
-  const pnlColor = result.total_pnl_usdt >= 0 ? "text-success" : "text-destructive";
+  const winColor =
+    result && result.win_rate >= 0.5 ? "text-success" : "text-destructive";
+  const pnlColor =
+    result && result.total_pnl_usdt >= 0 ? "text-success" : "text-destructive";
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <Stat label="Trades" value={String(result.trades.length)} />
-        <Stat
-          label="Win rate"
-          value={`${(result.win_rate * 100).toFixed(0)}%`}
-          className={winColor}
-        />
-        <Stat
-          label="Total PnL"
-          value={`$${result.total_pnl_usdt.toFixed(2)}`}
-          sub={`${(result.total_pnl_pct * 100).toFixed(1)}%`}
-          className={pnlColor}
-        />
-        <Stat
-          label="Max DD"
-          value={`${(result.max_drawdown_pct * 100).toFixed(1)}%`}
-        />
-      </div>
+      {result ? (
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Stat label="Trades" value={String(result.trades.length)} />
+          <Stat
+            label="Win rate"
+            value={`${(result.win_rate * 100).toFixed(0)}%`}
+            className={winColor}
+          />
+          <Stat
+            label="Total PnL"
+            value={`$${result.total_pnl_usdt.toFixed(2)}`}
+            sub={`${(result.total_pnl_pct * 100).toFixed(1)}%`}
+            className={pnlColor}
+          />
+          <Stat
+            label="Max DD"
+            value={`${(result.max_drawdown_pct * 100).toFixed(1)}%`}
+          />
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+          Run a backtest to see results.
+        </div>
+      )}
       <div ref={ref} className="h-48 rounded-md border border-border bg-card" />
+      {result && (
       <div className="rounded-md border border-border max-h-72 overflow-auto">
         <Table>
           <TableHeader className="sticky top-0 bg-card">
@@ -151,6 +153,7 @@ export default function BacktestPanel({ result }: { result: BacktestResult | nul
           </TableBody>
         </Table>
       </div>
+      )}
     </div>
   );
 }
