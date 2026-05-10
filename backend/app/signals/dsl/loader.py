@@ -56,6 +56,8 @@ INDICATOR_REFS: dict[str, tuple[int, int]] = {
     "ha_close": (1, 1),
     "ha_high": (1, 1),
     "ha_low": (1, 1),
+    "stochrsi_k": (5, 5),            # [tf, rsi_len, stoch_len, k_smooth, d_smooth]
+    "stochrsi_d": (5, 5),
     "news_sentiment": (1, 1),        # [minutes]
     "news_blackout": (0, 0),
     "minute_of_hour": (0, 0),

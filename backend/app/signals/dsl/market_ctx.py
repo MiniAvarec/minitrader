@@ -94,6 +94,21 @@ class MarketCtx:
     def heikin_ashi(self, tf: str):
         return self._series(("ha", tf), lambda: extra_ta.heikin_ashi(self._frame(tf)))
 
+    def stochrsi(
+        self,
+        tf: str,
+        rsi_len: int,
+        stoch_len: int,
+        k_smooth: int,
+        d_smooth: int,
+    ):
+        return self._series(
+            ("stochrsi", tf, rsi_len, stoch_len, k_smooth, d_smooth),
+            lambda: extra_ta.stochrsi(
+                self._frame(tf)["close"], rsi_len, stoch_len, k_smooth, d_smooth
+            ),
+        )
+
     # ---------- ValueRef resolution (used by evaluator) ----------
 
     def resolve(self, ref: Any, params: dict[str, Any], *, offset: int = 0) -> float | bool:
@@ -148,6 +163,15 @@ class MarketCtx:
             ha = self.heikin_ashi(args[0])
             attr = {"ha_open": "open", "ha_close": "close", "ha_high": "high", "ha_low": "low"}[name]
             return last(getattr(ha, attr))
+        if name in ("stochrsi_k", "stochrsi_d"):
+            sr = self.stochrsi(
+                args[0],
+                int(args[1]),
+                int(args[2]),
+                int(args[3]),
+                int(args[4]),
+            )
+            return last(sr.k if name == "stochrsi_k" else sr.d)
         if name == "news_sentiment":
             minutes = int(args[0])
             return self._news_sentiment(minutes)

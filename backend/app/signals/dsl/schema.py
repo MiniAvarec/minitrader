@@ -35,6 +35,7 @@ A ValueRef is one of:
   - { vwap: [tf] }
   - { supertrend: [tf, length, mult] }   -- +1 / -1
   - { ha_open|ha_close|ha_high|ha_low: [tf] }
+  - { stochrsi_k|stochrsi_d: [tf, rsi_len, stoch_len, k_smooth, d_smooth] }
   - { news_sentiment: [minutes] }
   - { news_blackout: [] }
   - { minute_of_hour: [] }

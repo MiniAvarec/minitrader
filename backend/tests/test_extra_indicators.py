@@ -1,7 +1,15 @@
 import numpy as np
 import pandas as pd
 
-from app.indicators.extra import bollinger, donchian, heikin_ashi, sma, supertrend, vwap
+from app.indicators.extra import (
+    bollinger,
+    donchian,
+    heikin_ashi,
+    sma,
+    stochrsi,
+    supertrend,
+    vwap,
+)
 
 
 def _df(closes):
@@ -66,3 +74,22 @@ def test_sma_simple():
     s = pd.Series(np.arange(20, dtype=float))
     out = sma(s, 5)
     assert out.iloc[-1] == (15 + 16 + 17 + 18 + 19) / 5
+
+
+def test_stochrsi_in_unit_range_and_responds_to_dip():
+    # uptrend that flat-lines then dips — K should swing from high to low.
+    rng = np.linspace(100.0, 200.0, 60)
+    flat = np.full(20, 200.0)
+    dip = np.linspace(200.0, 180.0, 20)
+    closes = pd.Series(np.r_[rng, flat, dip])
+    sr = stochrsi(closes, rsi_len=14, stoch_len=14, k_smooth=3, d_smooth=3)
+    # values that exist must be inside [0, 100]
+    valid_k = sr.k.dropna()
+    valid_d = sr.d.dropna()
+    assert len(valid_k) > 0 and len(valid_d) > 0
+    assert (valid_k.between(0.0, 100.0)).all()
+    assert (valid_d.between(0.0, 100.0)).all()
+    # K at the end of the dip should be below K at the flat-line peak
+    end_k = sr.k.iloc[-1]
+    peak_k = sr.k.iloc[len(rng) + len(flat) - 1]
+    assert end_k < peak_k

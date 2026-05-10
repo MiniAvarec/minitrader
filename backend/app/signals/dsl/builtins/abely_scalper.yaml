@@ -1,0 +1,65 @@
+name: "Abely Scalper"
+description: |
+  Fast mean-reversion scalper adapted from "Abely Scalper v8.2" (a 5m
+  RevenueBot grid-bot preset). The original config defined three OR-grouped
+  entry blocks per side; we mirror that structure here.
+
+  Long when StochRSI is bottoming from oversold and short-term momentum is
+  turning up. Short on the mirror: StochRSI rolling over from overbought
+  with momentum turning down. Three blocks let a "clean cross from deep
+  oversold", a "momentum confirmation" pattern, or a "deep RSI" pattern each
+  fire on its own.
+
+  Source preset is 5m; we run on 3m (5m is not in the default tracked
+  timeframes). Tight 0.4% stops with 0.6% targets — designed for liquid,
+  mid-volatility pairs. News veto on, news boost off (mean-reversion
+  shouldn't chase sentiment).
+timeframes: ["3m"]
+cooldown_min: 5
+
+params:
+  oversold_k: 20
+  overbought_k: 80
+  rsi_fast_len: 8
+  rsi_buy_max: 50
+  rsi_sell_min: 50
+
+entry:
+  long:
+    any_of:
+      # Block A — clean bounce: K below oversold and crossing above D.
+      - all_of:
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: "<", rhs: { param: oversold_k } }
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: "crosses_above", rhs: { stochrsi_d: ["3m", 14, 14, 3, 3] } }
+      # Block B — K oversold + K>D + fast RSI low + MACD hist turning positive.
+      - all_of:
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: "<", rhs: 40 }
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: ">", rhs: { stochrsi_d: ["3m", 14, 14, 3, 3] } }
+          - { lhs: { rsi: ["3m", 8] }, op: "<", rhs: { param: rsi_buy_max } }
+          - { lhs: { macd_hist: ["3m"] }, op: "crosses_above", rhs: 0 }
+      # Block C — deep oversold confluence (no MACD requirement).
+      - all_of:
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: "<", rhs: 30 }
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: ">", rhs: { stochrsi_d: ["3m", 14, 14, 3, 3] } }
+          - { lhs: { rsi: ["3m", 8] }, op: "<", rhs: 40 }
+  short:
+    any_of:
+      # Block A — clean rollover: K above overbought and crossing below D.
+      - all_of:
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: ">", rhs: { param: overbought_k } }
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: "crosses_below", rhs: { stochrsi_d: ["3m", 14, 14, 3, 3] } }
+      # Block B — K overbought + K<D + fast RSI high + MACD hist turning negative.
+      - all_of:
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: ">", rhs: 60 }
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: "<", rhs: { stochrsi_d: ["3m", 14, 14, 3, 3] } }
+          - { lhs: { rsi: ["3m", 8] }, op: ">", rhs: { param: rsi_sell_min } }
+          - { lhs: { macd_hist: ["3m"] }, op: "crosses_below", rhs: 0 }
+      # Block C — deep overbought confluence (no MACD requirement).
+      - all_of:
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: ">", rhs: 70 }
+          - { lhs: { stochrsi_k: ["3m", 14, 14, 3, 3] }, op: "<", rhs: { stochrsi_d: ["3m", 14, 14, 3, 3] } }
+          - { lhs: { rsi: ["3m", 8] }, op: ">", rhs: 60 }
+
+sl: { pct: 0.004, tf: "3m" }
+tp: { pct: 0.006, tf: "3m" }
+news_modifier: { allow_veto: true, allow_boost: false }

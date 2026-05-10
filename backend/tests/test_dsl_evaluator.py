@@ -89,6 +89,29 @@ def test_news_blackout_suppresses():
     assert evaluate_strategy(s, ctx) is None
 
 
+def test_abely_scalper_resolves_stochrsi():
+    s = load_yaml_file(BUILTINS / "abely_scalper.yaml")
+    # Build a sharp drop then mild recovery on 3m so StochRSI K can be low/rising.
+    drop = np.linspace(200, 140, 80)
+    rebound = np.linspace(140, 150, 30)
+    closes = np.r_[drop, rebound]
+    df = pd.DataFrame(
+        {
+            "open": np.r_[closes[0], closes[:-1]],
+            "high": closes + 0.5,
+            "low": closes - 0.5,
+            "close": closes,
+            "volume": 1.0,
+        }
+    )
+    ctx = _ctx({"3m": df})
+    # We don't assert side — the point is that stochrsi_k / stochrsi_d resolve
+    # without raising. (Several blocks use cross ops that may or may not fire on
+    # this synthetic series.)
+    sig = evaluate_strategy(s, ctx)
+    assert sig is None or sig.side in ("buy", "sell")
+
+
 def test_news_veto_on_contradicting_strong_sentiment():
     from datetime import datetime, timezone, timedelta
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from app.indicators.ta import atr as _atr, ema as _ema
+from app.indicators.ta import atr as _atr, ema as _ema, rsi as _rsi
 
 
 @dataclass
@@ -110,3 +110,32 @@ def heikin_ashi(df: pd.DataFrame) -> HaResult:
 
 def sma(close: pd.Series, length: int) -> pd.Series:
     return close.rolling(length, min_periods=length).mean()
+
+
+@dataclass
+class StochRsiResult:
+    k: pd.Series
+    d: pd.Series
+
+
+def stochrsi(
+    close: pd.Series,
+    rsi_len: int = 14,
+    stoch_len: int = 14,
+    k_smooth: int = 3,
+    d_smooth: int = 3,
+) -> StochRsiResult:
+    """Stochastic RSI — TradingView convention.
+
+    1. Compute RSI(rsi_len) over close
+    2. Take the rolling min/max of RSI over stoch_len bars
+    3. Scale into [0..100] => raw K
+    4. K = SMA(raw, k_smooth), D = SMA(K, d_smooth)
+    """
+    r = _rsi(close, rsi_len)
+    lowest = r.rolling(stoch_len, min_periods=stoch_len).min()
+    highest = r.rolling(stoch_len, min_periods=stoch_len).max()
+    raw = 100.0 * (r - lowest) / (highest - lowest).replace(0, np.nan)
+    k = raw.rolling(k_smooth, min_periods=k_smooth).mean()
+    d = k.rolling(d_smooth, min_periods=d_smooth).mean()
+    return StochRsiResult(k=k, d=d)
