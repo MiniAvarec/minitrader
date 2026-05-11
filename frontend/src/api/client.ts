@@ -335,3 +335,141 @@ export async function testIntegration(slug: string, value: string): Promise<{ ok
   const r = await api.post<{ ok: boolean; detail: string }>(`/integrations/${slug}/test`, { value });
   return r.data;
 }
+
+// ===== Trading Journal =====
+
+export type DealRow = {
+  id: number;
+  signal_id: number | null;
+  exchange: string;
+  symbol: string;
+  side: "buy" | "sell";
+  qty: number;
+  notional_usdt: number;
+  entry_price: number;
+  exit_price: number | null;
+  sl: number | null;
+  tp: number | null;
+  realized_pnl_usdt: number;
+  fee_usdt: number;
+  roi_pct: number | null;
+  r_multiple: number | null;
+  duration_s: number | null;
+  status: string;
+  created_at: string;
+  closed_at: string | null;
+  strategy_id: number | null;
+  strategy_name: string | null;
+  notes: string | null;
+  tags: string[];
+  exchange_order_id: string | null;
+};
+
+export type JournalBucket = { count: number; net_pnl: number; win_rate: number };
+
+export type JournalStats = {
+  count: number;
+  open: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  win_rate: number;
+  net_pnl: number;
+  gross_profit: number;
+  gross_loss: number;
+  profit_factor: number | null;
+  avg_win: number;
+  avg_loss: number;
+  largest_win: number;
+  largest_loss: number;
+  expectancy: number;
+  avg_duration_s: number;
+  max_drawdown_usdt: number;
+  max_drawdown_pct: number;
+  by_symbol: Record<string, JournalBucket>;
+  by_side: Record<string, JournalBucket>;
+  by_strategy: Record<string, JournalBucket>;
+  by_day_of_week: Record<string, JournalBucket>;
+  by_hour_of_day: Record<string, JournalBucket>;
+};
+
+export type EquityPoint = { t: string; pnl: number; equity: number };
+
+export type JournalFilterOptions = {
+  symbols: string[];
+  exchanges: string[];
+  strategies: { id: number; name: string }[];
+};
+
+export type JournalFilters = {
+  date_from?: string;
+  date_to?: string;
+  symbols?: string[];
+  exchange?: string;
+  side?: "buy" | "sell";
+  status?: "all" | "open" | "closed" | "partial";
+  strategy_id?: number;
+  outcome?: "all" | "win" | "loss" | "breakeven";
+  min_pnl?: number;
+  max_pnl?: number;
+  search?: string;
+};
+
+export type JournalQueryParams = JournalFilters & {
+  sort?: "created_at" | "closed_at" | "pnl" | "roi" | "duration";
+  order?: "asc" | "desc";
+  limit?: number;
+  offset?: number;
+};
+
+function buildJournalParams(p: JournalQueryParams): URLSearchParams {
+  const sp = new URLSearchParams();
+  if (p.date_from) sp.set("date_from", p.date_from);
+  if (p.date_to) sp.set("date_to", p.date_to);
+  if (p.exchange) sp.set("exchange", p.exchange);
+  if (p.side) sp.set("side", p.side);
+  if (p.status && p.status !== "all") sp.set("status", p.status);
+  if (p.strategy_id !== undefined) sp.set("strategy_id", String(p.strategy_id));
+  if (p.outcome && p.outcome !== "all") sp.set("outcome", p.outcome);
+  if (p.min_pnl !== undefined) sp.set("min_pnl", String(p.min_pnl));
+  if (p.max_pnl !== undefined) sp.set("max_pnl", String(p.max_pnl));
+  if (p.search) sp.set("search", p.search);
+  if (p.sort) sp.set("sort", p.sort);
+  if (p.order) sp.set("order", p.order);
+  if (p.limit !== undefined) sp.set("limit", String(p.limit));
+  if (p.offset !== undefined) sp.set("offset", String(p.offset));
+  (p.symbols || []).forEach((s) => sp.append("symbols", s));
+  return sp;
+}
+
+export async function getJournalDeals(p: JournalQueryParams): Promise<DealRow[]> {
+  const r = await api.get<DealRow[]>(`/journal/deals?${buildJournalParams(p)}`);
+  return r.data;
+}
+
+export async function getJournalStats(p: JournalFilters): Promise<JournalStats> {
+  const r = await api.get<JournalStats>(`/journal/stats?${buildJournalParams(p)}`);
+  return r.data;
+}
+
+export async function getJournalEquityCurve(
+  p: JournalFilters,
+): Promise<{ points: EquityPoint[] }> {
+  const r = await api.get<{ points: EquityPoint[] }>(
+    `/journal/equity-curve?${buildJournalParams(p)}`,
+  );
+  return r.data;
+}
+
+export async function getJournalFilterOptions(): Promise<JournalFilterOptions> {
+  const r = await api.get<JournalFilterOptions>("/journal/filters");
+  return r.data;
+}
+
+export async function updateDealAnnotations(
+  id: number,
+  body: { notes?: string | null; tags?: string[] },
+): Promise<DealRow> {
+  const r = await api.patch<DealRow>(`/journal/deals/${id}`, body);
+  return r.data;
+}

@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
+  BookOpen,
   Briefcase,
   BrainCircuit,
   LayoutDashboard,
@@ -25,6 +26,7 @@ const ITEMS = [
   { to: "/", label: "Dashboard", icon: <LayoutDashboard /> },
   { to: "/signals", label: "Signals", icon: <Activity /> },
   { to: "/positions", label: "Positions", icon: <Briefcase /> },
+  { to: "/journal", label: "Journal", icon: <BookOpen /> },
   { to: "/strategies", label: "Strategies", icon: <BrainCircuit /> },
   { to: "/tools", label: "Tools", icon: <Route /> },
   { to: "/settings", label: "Settings", icon: <SettingsIcon /> },

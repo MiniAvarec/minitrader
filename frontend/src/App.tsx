@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Signals from "@/pages/Signals";
+import Journal from "@/pages/Journal";
 import Positions from "@/pages/Positions";
 import Settings from "@/pages/Settings";
 import Strategies from "@/pages/Strategies";
@@ -42,6 +43,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="signals" element={<Signals />} />
             <Route path="positions" element={<Positions />} />
+            <Route path="journal" element={<Journal />} />
             <Route path="strategies" element={<Strategies />} />
             <Route path="strategies/:id" element={<StrategyEdit />} />
             <Route path="tools" element={<Tools />} />

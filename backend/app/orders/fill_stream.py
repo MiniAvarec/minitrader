@@ -45,11 +45,15 @@ async def _apply_fill(db: AsyncSession, evt: FillEvent, user_id: int) -> None:
     ).scalar_one_or_none()
     if row is None:
         return
+    closing = evt.status in {"filled", "canceled", "rejected"}
     if evt.avg_price > 0:
-        row.entry_price = evt.avg_price
+        if closing and row.status == "open":
+            row.exit_price = evt.avg_price
+        else:
+            row.entry_price = evt.avg_price
     if evt.realized_pnl:
         row.realized_pnl_usdt = evt.realized_pnl
-    if evt.status in {"filled", "canceled", "rejected"}:
+    if closing:
         row.status = "closed"
         row.closed_at = datetime.now(timezone.utc)
     elif evt.status == "partially_filled":

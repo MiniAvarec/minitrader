@@ -177,7 +177,12 @@ class Order(Base):
     tp: Mapped[float | None] = mapped_column(Float, nullable=True)
     exchange_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     realized_pnl_usdt: Mapped[float] = mapped_column(Float, default=0.0)
+    # Placeholder — populated when the broker layer starts emitting per-trade fees.
+    fee_usdt: Mapped[float] = mapped_column(Float, default=0.0)
+    exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="open")
+    notes: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )

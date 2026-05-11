@@ -70,6 +70,12 @@ async def _close_orphans(
             log.warning("realized PnL pull failed for order %s: %s", order.id, e)
             pnl = 0.0
         order.realized_pnl_usdt = pnl
+        if order.exit_price is None and order.qty > 0:
+            # Approximate exit_price from net PnL — close-fill avg_price was never
+            # observed by this code path. Fees fold into realized_pnl, so this is
+            # the price that reconciles to what the user sees on the exchange.
+            direction = 1.0 if order.side.value == "buy" else -1.0
+            order.exit_price = order.entry_price + direction * pnl / order.qty
         order.status = "closed"
         order.closed_at = datetime.now(timezone.utc)
         log.info("closed order %s pnl=%.2f", order.id, pnl)

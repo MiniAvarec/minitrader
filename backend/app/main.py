@@ -12,6 +12,7 @@ from app.api import exchanges as exchange_routes
 from app.api import execution as execution_routes
 from app.api import integrations as integration_routes
 from app.api import internal as internal_routes
+from app.api import journal as journal_routes
 from app.api import klines as klines_routes
 from app.api import news as news_routes
 from app.api import orders as order_routes
@@ -66,6 +67,7 @@ app.include_router(admin_routes.router, prefix="/api")
 app.include_router(key_routes.router, prefix="/api")
 app.include_router(signal_routes.router, prefix="/api")
 app.include_router(order_routes.router, prefix="/api")
+app.include_router(journal_routes.router, prefix="/api")
 app.include_router(position_routes.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(news_routes.router, prefix="/api")
