@@ -7,16 +7,21 @@ import {
   Send,
   ShieldAlert,
   Sliders,
+  Sparkles,
   Target,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  AISettings,
   api,
   deleteIntegration,
+  getAISettings,
   IntegrationStatus,
   listIntegrations,
   RiskCfg,
+  saveAISettings,
   saveIntegration,
+  testAIKey,
   testIntegration,
 } from "@/api/client";
 import { useAuth } from "@/auth";
@@ -40,6 +45,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 
@@ -128,6 +140,7 @@ export default function Settings() {
           <SettingsTab value="mode" icon={<Sliders className="h-4 w-4" />} label="Trading mode" />
           <SettingsTab value="api" icon={<KeyRound className="h-4 w-4" />} label="Exchanges" />
           <SettingsTab value="integrations" icon={<Newspaper className="h-4 w-4" />} label="Integrations" />
+          <SettingsTab value="ai" icon={<Sparkles className="h-4 w-4" />} label="AI Evaluation" />
           <SettingsTab value="risk" icon={<ShieldAlert className="h-4 w-4" />} label="Risk" />
           <SettingsTab value="telegram" icon={<Send className="h-4 w-4" />} label="Telegram" />
         </TabsList>
@@ -247,6 +260,10 @@ export default function Settings() {
 
           <TabsContent value="integrations" className="mt-0">
             <IntegrationsTab />
+          </TabsContent>
+
+          <TabsContent value="ai" className="mt-0">
+            <AIEvaluationTab />
           </TabsContent>
 
           <TabsContent value="risk" className="mt-0">
@@ -499,6 +516,218 @@ function IntegrationCard({
         </Button>
       </CardContent>
     </Card>
+  );
+}
+
+function AIEvaluationTab() {
+  const qc = useQueryClient();
+  const cfg = useQuery<AISettings>({
+    queryKey: ["ai-settings"],
+    queryFn: getAISettings,
+  });
+
+  const [apiKey, setApiKey] = useState("");
+  const [modelA, setModelA] = useState<string | null>(null);
+  const [modelB, setModelB] = useState<string | null>(null);
+  const [modelC, setModelC] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    if (cfg.data) {
+      setModelA(cfg.data.model_a);
+      setModelB(cfg.data.model_b);
+      setModelC(cfg.data.model_c);
+    }
+  }, [cfg.data]);
+
+  if (cfg.isLoading || !cfg.data) {
+    return (
+      <Card>
+        <CardContent className="py-6 text-sm text-muted-foreground">
+          Loading…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const data = cfg.data;
+  const models = data.available_models;
+  const dirty =
+    apiKey.trim().length > 0 ||
+    (modelA && modelA !== data.model_a) ||
+    (modelB && modelB !== data.model_b) ||
+    (modelC && modelC !== data.model_c);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const body: Parameters<typeof saveAISettings>[0] = {
+        model_a: modelA ?? undefined,
+        model_b: modelB ?? undefined,
+        model_c: modelC ?? undefined,
+      };
+      if (apiKey.trim().length > 0) body.openrouter_api_key = apiKey.trim();
+      await saveAISettings(body);
+      setApiKey("");
+      qc.invalidateQueries({ queryKey: ["ai-settings"] });
+      toast.success("AI evaluation settings saved");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearKey() {
+    if (!confirm("Remove the stored OpenRouter key?")) return;
+    try {
+      await saveAISettings({ openrouter_api_key: "" });
+      qc.invalidateQueries({ queryKey: ["ai-settings"] });
+      toast.success("OpenRouter key cleared");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    }
+  }
+
+  async function runTest() {
+    setTesting(true);
+    try {
+      // If the user typed a fresh key, persist it first so the backend can test it.
+      if (apiKey.trim().length > 0) {
+        await saveAISettings({ openrouter_api_key: apiKey.trim() });
+        setApiKey("");
+        qc.invalidateQueries({ queryKey: ["ai-settings"] });
+      }
+      const r = await testAIKey();
+      if (r.ok) toast.success(`Connected (${r.model})`);
+      else toast.error(`${r.model}: ${r.detail}`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Test failed");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>AI Evaluation</CardTitle>
+        <CardDescription>
+          Score every trade with three different LLMs via OpenRouter. Your key
+          is encrypted at rest with the server&apos;s master key.{" "}
+          <a
+            href="https://openrouter.ai/keys"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
+            Get an OpenRouter key →
+          </a>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label>OpenRouter API key</Label>
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            className="font-mono"
+            placeholder={
+              data.has_key
+                ? "•••••••• (enter a new key to replace)"
+                : "Paste your OpenRouter key (sk-or-…)"
+            }
+          />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="muted" className="normal-case">
+              {data.has_key ? "Stored" : "Not set"}
+            </Badge>
+            {data.has_key && (
+              <button
+                type="button"
+                onClick={clearKey}
+                className="underline hover:text-foreground"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <ModelSelect
+            label="Model A"
+            value={modelA}
+            onChange={setModelA}
+            models={models}
+          />
+          <ModelSelect
+            label="Model B"
+            value={modelB}
+            onChange={setModelB}
+            models={models}
+          />
+          <ModelSelect
+            label="Model C"
+            value={modelC}
+            onChange={setModelC}
+            models={models}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Each &ldquo;Evaluate with AI&rdquo; click on a deal runs all three
+          models in parallel. Pick a mix of labs for diverse perspectives.
+        </p>
+
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Button onClick={save} disabled={busy || !dirty}>
+            {busy ? "Saving…" : "Save"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={runTest}
+            disabled={testing || (!data.has_key && apiKey.trim().length === 0)}
+          >
+            {testing ? "Testing…" : "Test connection"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModelSelect({
+  label,
+  value,
+  onChange,
+  models,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (v: string) => void;
+  models: { id: string; label: string; lab: string }[];
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{label}</Label>
+      <Select value={value ?? undefined} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue placeholder="Pick a model" />
+        </SelectTrigger>
+        <SelectContent>
+          {models.map((m) => (
+            <SelectItem key={m.id} value={m.id}>
+              <span className="font-medium">{m.label}</span>
+              <span className="ml-1 text-xs text-muted-foreground">
+                · {m.lab}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 

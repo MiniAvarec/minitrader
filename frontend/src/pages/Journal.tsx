@@ -7,16 +7,22 @@ import {
   ChevronDown,
   Filter,
   RotateCcw,
+  Sparkles,
   X,
 } from "lucide-react";
 import { createChart, IChartApi, ISeriesApi, Time } from "lightweight-charts";
 import {
+  AIEvaluation,
+  AISettings,
   DealRow,
   EquityPoint,
   JournalFilterOptions,
   JournalFilters,
   JournalQueryParams,
   JournalStats,
+  evaluateDeal,
+  getAISettings,
+  getDealEvaluations,
   getJournalDeals,
   getJournalEquityCurve,
   getJournalFilterOptions,
@@ -1093,7 +1099,7 @@ function DealDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 font-mono uppercase tracking-wider">
             <PairBadge exchange={deal.exchange} symbol={deal.symbol} />
@@ -1190,6 +1196,8 @@ function DealDialog({
           </div>
         </div>
 
+        <AIReviewSection dealId={deal.id} />
+
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Cancel
@@ -1203,6 +1211,230 @@ function DealDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function AIReviewSection({ dealId }: { dealId: number }) {
+  const cfg = useQuery<AISettings>({
+    queryKey: ["ai-settings"],
+    queryFn: getAISettings,
+  });
+  const existing = useQuery({
+    queryKey: ["ai-evaluations", dealId],
+    queryFn: () => getDealEvaluations(dealId),
+  });
+
+  const qc = useQueryClient();
+  const runEval = useMutation({
+    mutationFn: () => evaluateDeal(dealId),
+    onSuccess: (data) => {
+      qc.setQueryData(["ai-evaluations", dealId], data);
+    },
+  });
+
+  const hasKey = cfg.data?.has_key === true;
+  const evaluations = runEval.data?.evaluations ?? existing.data?.evaluations ?? [];
+  const hasResults = evaluations.length > 0;
+
+  let errorText: string | null = null;
+  if (runEval.isError) {
+    const err = runEval.error as any;
+    errorText = err?.response?.data?.detail || "Evaluation failed";
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-4">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3" />
+          AI Review
+        </label>
+        {hasKey && (
+          <Button
+            size="sm"
+            variant={hasResults ? "outline" : "default"}
+            onClick={() => runEval.mutate()}
+            disabled={runEval.isPending}
+          >
+            <Sparkles className="h-3 w-3" />
+            {runEval.isPending
+              ? "Evaluating…"
+              : hasResults
+                ? "Re-evaluate"
+                : "Evaluate with AI (3 models)"}
+          </Button>
+        )}
+      </div>
+
+      {!cfg.isLoading && !hasKey && (
+        <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+          Add an OpenRouter API key in{" "}
+          <span className="font-medium">Settings → AI Evaluation</span> to
+          enable per-deal AI reviews from three models in parallel.
+        </div>
+      )}
+
+      {errorText && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+          {errorText}
+        </div>
+      )}
+
+      {runEval.isPending && (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="rounded-md border border-border p-3 text-xs text-muted-foreground animate-pulse"
+            >
+              <div className="h-3 w-24 rounded bg-muted mb-2" />
+              <div className="h-2 w-full rounded bg-muted mb-1" />
+              <div className="h-2 w-5/6 rounded bg-muted mb-1" />
+              <div className="h-2 w-4/6 rounded bg-muted" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!runEval.isPending && hasResults && (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {evaluations.map((ev) => (
+            <EvaluationCard key={ev.id} ev={ev} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvaluationCard({ ev }: { ev: AIEvaluation }) {
+  const [open, setOpen] = useState(false);
+  const verdictBadge =
+    ev.verdict === "good"
+      ? { variant: "success" as const, label: "Good" }
+      : ev.verdict === "bad"
+        ? { variant: "destructive" as const, label: "Bad" }
+        : ev.verdict === "mixed"
+          ? { variant: "muted" as const, label: "Mixed" }
+          : null;
+
+  const modelLab = ev.model.split("/")[0];
+  const modelName = ev.model.split("/").slice(1).join("/") || ev.model;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-3 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            {modelLab}
+          </span>
+          <span className="font-medium text-sm">{modelName}</span>
+        </div>
+        {verdictBadge && (
+          <Badge variant={verdictBadge.variant}>{verdictBadge.label}</Badge>
+        )}
+      </div>
+
+      {ev.status === "error" ? (
+        <div className="text-destructive">{ev.error || "Failed"}</div>
+      ) : (
+        <>
+          {typeof ev.score === "number" && (
+            <div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  Score
+                </span>
+                <span className="num font-semibold">{ev.score}/100</span>
+              </div>
+              <div className="h-1.5 w-full rounded bg-muted">
+                <div
+                  className={cn(
+                    "h-1.5 rounded",
+                    ev.score >= 67
+                      ? "bg-success"
+                      : ev.score >= 34
+                        ? "bg-muted-foreground"
+                        : "bg-destructive",
+                  )}
+                  style={{ width: `${Math.max(2, Math.min(100, ev.score))}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {ev.summary && (
+            <p className="text-foreground/90 leading-relaxed">{ev.summary}</p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="self-start text-muted-foreground hover:text-foreground underline text-[10px] uppercase tracking-wider font-mono"
+          >
+            {open ? "Hide details" : "Details"}
+          </button>
+
+          {open && (
+            <div className="flex flex-col gap-2">
+              <EvalBullets title="Strengths" items={ev.strengths} tone="success" />
+              <EvalBullets
+                title="Weaknesses"
+                items={ev.weaknesses}
+                tone="destructive"
+              />
+              <EvalBullets title="Suggestions" items={ev.suggestions} tone="info" />
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="mt-1 flex justify-between gap-2 text-[10px] text-muted-foreground">
+        <span>
+          {ev.prompt_tokens != null && ev.completion_tokens != null
+            ? `${ev.prompt_tokens}+${ev.completion_tokens} tok`
+            : ""}
+        </span>
+        <span>
+          {ev.cost_usd != null ? `$${ev.cost_usd.toFixed(4)}` : ""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function EvalBullets({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items: string[];
+  tone: "success" | "destructive" | "info";
+}) {
+  if (!items || items.length === 0) return null;
+  const color =
+    tone === "success"
+      ? "text-success"
+      : tone === "destructive"
+        ? "text-destructive"
+        : "text-muted-foreground";
+  return (
+    <div>
+      <div
+        className={cn(
+          "text-[10px] font-mono uppercase tracking-wider mb-1",
+          color,
+        )}
+      >
+        {title}
+      </div>
+      <ul className="list-disc pl-4 space-y-0.5 text-foreground/90">
+        {items.map((it, i) => (
+          <li key={i}>{it}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

@@ -473,3 +473,77 @@ export async function updateDealAnnotations(
   const r = await api.patch<DealRow>(`/journal/deals/${id}`, body);
   return r.data;
 }
+
+// ===== AI Evaluation =====
+
+export type AIModelOption = { id: string; label: string; lab: string };
+
+export type AISettings = {
+  has_key: boolean;
+  model_a: string;
+  model_b: string;
+  model_c: string;
+  available_models: AIModelOption[];
+};
+
+export type AIEvaluation = {
+  id: number;
+  order_id: number;
+  model: string;
+  status: "pending" | "done" | "error";
+  verdict: "good" | "mixed" | "bad" | null;
+  score: number | null;
+  summary: string | null;
+  strengths: string[];
+  weaknesses: string[];
+  suggestions: string[];
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  cost_usd: number | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type AIEvaluateResponse = {
+  deal_id: number;
+  evaluations: AIEvaluation[];
+};
+
+export async function getAISettings(): Promise<AISettings> {
+  const r = await api.get<AISettings>("/settings/ai");
+  return r.data;
+}
+
+export async function saveAISettings(body: {
+  openrouter_api_key?: string | null;
+  model_a?: string;
+  model_b?: string;
+  model_c?: string;
+}): Promise<{
+  ok: boolean;
+  has_key: boolean;
+  model_a: string;
+  model_b: string;
+  model_c: string;
+}> {
+  const r = await api.put("/settings/ai", body);
+  return r.data;
+}
+
+export async function testAIKey(): Promise<{ ok: boolean; detail: string; model: string }> {
+  const r = await api.post<{ ok: boolean; detail: string; model: string }>(
+    "/settings/ai/test",
+  );
+  return r.data;
+}
+
+export async function evaluateDeal(dealId: number): Promise<AIEvaluateResponse> {
+  const r = await api.post<AIEvaluateResponse>(`/journal/deals/${dealId}/evaluate`);
+  return r.data;
+}
+
+export async function getDealEvaluations(dealId: number): Promise<AIEvaluateResponse> {
+  const r = await api.get<AIEvaluateResponse>(`/journal/deals/${dealId}/evaluations`);
+  return r.data;
+}

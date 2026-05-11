@@ -8,6 +8,7 @@ from slowapi.errors import RateLimitExceeded
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.api import admin as admin_routes
+from app.api import ai_eval as ai_eval_routes
 from app.api import exchanges as exchange_routes
 from app.api import execution as execution_routes
 from app.api import integrations as integration_routes
@@ -21,6 +22,7 @@ from app.api import positions as position_routes
 from app.api import risk_tools as risk_tool_routes
 from app.api import sentiment as sentiment_routes
 from app.api import settings as settings_routes
+from app.api import settings_ai as settings_ai_routes
 from app.api import signals as signal_routes
 from app.api import strategies as strategy_routes
 from app.api import watchlist as watchlist_routes
@@ -68,8 +70,10 @@ app.include_router(key_routes.router, prefix="/api")
 app.include_router(signal_routes.router, prefix="/api")
 app.include_router(order_routes.router, prefix="/api")
 app.include_router(journal_routes.router, prefix="/api")
+app.include_router(ai_eval_routes.router, prefix="/api")
 app.include_router(position_routes.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
+app.include_router(settings_ai_routes.router, prefix="/api")
 app.include_router(news_routes.router, prefix="/api")
 app.include_router(sentiment_routes.router, prefix="/api")
 app.include_router(klines_routes.router, prefix="/api")

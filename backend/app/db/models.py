@@ -189,6 +189,60 @@ class Order(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class UserAISettings(Base):
+    """Per-user OpenRouter API key + chosen 3 models for AI deal evaluation."""
+    __tablename__ = "user_ai_settings"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    encrypted_openrouter_key: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True
+    )
+    model_a: Mapped[str] = mapped_column(
+        String(128), default="anthropic/claude-opus-4.7"
+    )
+    model_b: Mapped[str] = mapped_column(String(128), default="openai/gpt-5")
+    model_c: Mapped[str] = mapped_column(
+        String(128), default="google/gemini-2.5-pro"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class OrderEvaluation(Base):
+    """A single LLM review of an Order. Three rows per evaluate-click (one per model)."""
+    __tablename__ = "order_evaluations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("orders.id", ondelete="CASCADE"), index=True
+    )
+    model: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    summary: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    strengths: Mapped[list] = mapped_column(JSON, default=list)
+    weaknesses: Mapped[list] = mapped_column(JSON, default=list)
+    suggestions: Mapped[list] = mapped_column(JSON, default=list)
+    raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class RiskEvent(Base):
     __tablename__ = "risk_events"
 
