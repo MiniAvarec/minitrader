@@ -130,7 +130,11 @@ services:
       - ./backend:/code
 
   frontend:
-    build: ./frontend
+    # Stop at the `build` stage (node:20-alpine with deps installed) so the
+    # dev server can run. The default final stage is nginx, which has no npm.
+    build:
+      context: ./frontend
+      target: build
     env_file: .env
     ports:
       - "5173:5173"
