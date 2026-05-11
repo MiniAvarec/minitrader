@@ -19,10 +19,11 @@
 9. [Сигналы, исполнение и риск-контроль](#сигналы-исполнение-и-риск-контроль)
 10. [Бэктест](#бэктест)
 11. [Инструменты на портфель (Tools)](#инструменты-на-портфель-tools)
-12. [Telegram-бот](#telegram-бот)
-13. [Миграции БД и обновление](#миграции-бд-и-обновление)
-14. [Разработка и тесты](#разработка-и-тесты)
-15. [Технологический стек](#технологический-стек)
+12. [Журнал сделок и AI-ревью](#журнал-сделок-и-ai-ревью)
+13. [Telegram-бот](#telegram-бот)
+14. [Миграции БД и обновление](#миграции-бд-и-обновление)
+15. [Разработка и тесты](#разработка-и-тесты)
+16. [Технологический стек](#технологический-стек)
 
 ---
 
@@ -43,6 +44,10 @@
 **Бэктест на тех же стратегиях.** Прокатываете YAML-стратегию по историческим клайнам выбранной пары, получаете win-rate, PnL, кривую эквити, журнал сделок.
 
 **Аналитические инструменты поверх живого портфеля.** Раздел **Tools** в UI: ребалансировщик концентрации, smart-роутер для выбора самой дешёвой биржи под заявку, walk-forward оптимизатор параметров стратегии, симулятор шок-сценариев против дневного лимита убытка.
+
+**Журнал сделок.** Полный пост-трейд-анализ: фильтры (даты, символы, сторона, исход, PnL-диапазон, теги, заметки), агрегаты (win-rate, profit factor, expectancy, max drawdown, MFE/MAE), кривая эквити, KPI-карточки и таблица сделок с подсветкой выигрышей/проигрышей. У каждой сделки — персональные заметки и теги.
+
+**AI-ревью сделок.** Любую открытую или закрытую сделку можно отправить на оценку трём frontier-моделям через OpenRouter (Claude, GPT, Gemini, Grok, DeepSeek — список тянется живьём из каталога OpenRouter, отфильтрованный до topовых вариантов). Модели получают весь контекст сделки: факты, индикаторы на входе (RSI/ATR/MFE/MAE), свечи 4h/1h/5m вокруг входа и после, параметры стратегии, риск-лимиты пользователя. На выходе — вердикт `good` / `mixed` / `bad`, балл 0–100, сильные/слабые стороны, конкретные рекомендации. Каждый пользователь хранит собственный OpenRouter API key (зашифрован тем же `MASTER_KEY`).
 
 **Веб-интерфейс в стиле Bloomberg.** React + shadcn/ui, светлая и тёмная темы, командное меню, real-time обновления через WebSocket.
 
@@ -164,6 +169,7 @@ docker compose logs -f backend       # дождитесь "alembic upgrade head"
 - **Strategies** — список встроенных и пользовательских стратегий, форк и редактирование.
 - **Strategy Edit** — YAML-редактор с подсветкой и встроенным бэктестом.
 - **Tools** — четыре инструмента поверх живого портфеля: `Rebalancer`, `Smart Execution Router`, `Walk-Forward Optimizer`, `Scenario Simulator` (подробнее см. ниже).
+- **Journal** — журнал сделок с фильтрами, KPI, кривой эквити, заметками/тегами и AI-ревью на 3 модели (подробнее см. ниже).
 - **Settings** — все настройки в одном месте (см. ниже).
 
 ### Вкладки Settings
@@ -175,6 +181,7 @@ docker compose logs -f backend       # дождитесь "alembic upgrade head"
 | **Trading mode** | переключатель `signal_only` ↔ `auto_execute` |
 | **Exchanges** | ключи Binance / OKX / Bybit, кнопка `Test & save` — пробный запрос баланса перед сохранением |
 | **Integrations** | ключи Finnhub, CryptoPanic, CryptoCompare, NewsData.io + Reddit User-Agent. Под каждым полем бейдж `Stored in DB` / `Loaded from .env` / `Not set`. |
+| **AI Evaluation** | OpenRouter API key (шифруется), выбор 3 моделей из живого каталога OpenRouter, кнопки `Test connection` и `Refresh model list` |
 | **Risk** | per-trade max notional, дневной лимит убытка, max concurrent positions, require SL/TP |
 | **Telegram** | привязка чата (генерация одноразового токена) |
 
@@ -432,6 +439,73 @@ news_modifier:
 
 ---
 
+## Журнал сделок и AI-ревью
+
+### Журнал (`/journal`)
+
+Read-and-annotate-надстройка над таблицей `orders`. Всё считается на лету в Python из отфильтрованного набора (типичный пользователь — <100k закрытых сделок, так что хватает).
+
+**Фильтры:** `date_from/to`, символы, биржа, сторона (`buy` / `sell`), статус (`open` / `closed` / `partial`), стратегия, исход (`win` / `loss` / `breakeven`), `min_pnl / max_pnl`, поиск по символу и заметкам.
+
+**KPI-карточки:** total trades, win rate, net PnL, gross profit/loss, profit factor, avg win / avg loss, largest win/loss, expectancy, average duration, max drawdown (USDT и %).
+
+**Группировки:** по символу, стороне, стратегии, дню недели, часу суток — каждая бакета отдаёт `count`, `net_pnl`, `win_rate`.
+
+**Кривая эквити:** массив `{t, pnl, equity}`, рендерится через lightweight-charts.
+
+**Аннотации:** на каждой сделке пользователь хранит `notes` (текст до 2048 символов) и `tags` (до 32 коротких тегов). `PATCH /journal/deals/{id}` обновляет их атомарно.
+
+**Endpoints:** `GET /journal/deals`, `GET /journal/stats`, `GET /journal/equity-curve`, `GET /journal/filters`, `PATCH /journal/deals/{id}`.
+
+### AI-ревью сделок
+
+Любую сделку (открытую или закрытую) из Журнала можно отправить на ревью трём моделям через OpenRouter параллельно. Каждая возвращает вердикт `good` / `mixed` / `bad`, балл 0–100, краткое резюме и списки сильных / слабых сторон / рекомендаций.
+
+#### Что получают модели
+
+Сборщик контекста (`backend/app/ai/context.py`) формирует один и тот же бриф для всех трёх моделей:
+
+- факты по сделке (символ, биржа, направление, qty, нотонал, entry/exit, SL/TP, fee, realized/unrealized PnL, ROI%, R-multiple, duration);
+- параметры пристёгнутой стратегии (имя + ключевые поля из YAML);
+- риск-лимиты пользователя (`max_notional`, `daily_loss_limit`, `max_concurrent_positions`, `require_sl_tp`);
+- свечи вокруг входа на трёх таймфреймах: 30×4h, 50×1h до входа, 24×5m, и 50×1h **после** входа (до закрытия — для закрытых сделок, до текущего момента — для открытых);
+- производные индикаторы на момент входа: RSI(14), ATR(14), расстояние entry→SL в ATR, отношение объёма к 20-bar SMA, max favorable / max adverse excursion с момента входа;
+- пользовательские заметки и теги по сделке.
+
+Один и тот же контекст идёт во все три модели — это позволяет напрямую сравнивать их ответы.
+
+#### Каталог моделей OpenRouter
+
+Список моделей в **Settings → AI Evaluation** подгружается **на лету** с `https://openrouter.ai/api/v1/models` (без авторизации, кэш 1 час in-process). После загрузки список фильтруется до frontier-уровня:
+
+- белый список лабораторий: Anthropic, OpenAI, Google, xAI, DeepSeek, Meta, Qwen, Mistral;
+- отсекаются явные не-frontier варианты: `mini`, `flash`, `haiku`, `nano`, `lite`, `small`, `distill`, `*-7b/8b/13b`, embeddings, vision-only, `:free` / `:beta` / `:nitro`;
+- сортировка: сначала по лабам в каноническом порядке, внутри лабы — newest first.
+
+Кнопка **Refresh model list** в настройках принудительно перечитывает каталог. Если OpenRouter недоступен, используется предыдущий снапшот; если и его нет — компактный baked-in fallback (`backend/app/ai/__init__.py`).
+
+При первом открытии Settings бэкенд выбирает дефолтные `model_a/b/c` как лучшие представители Anthropic / OpenAI / Google из живого каталога — пользователь может переопределить любую из трёх. Если выбранная модель потом исчезнет из каталога (ротация OpenRouter), она остаётся в дропдауне с пометкой `(legacy)`, чтобы Select не выглядел пустым.
+
+#### Запуск и хранение
+
+В Журнале откройте карточку сделки → **Evaluate with AI (3 models)**. Бэкенд (`POST /journal/deals/{id}/evaluate`) собирает контекст один раз, делает fan-out через `asyncio.gather` к трём моделям с принудительным `response_format: json_object` (`temperature=0.2`, `max_tokens=1500`), нормализует ответы, записывает три строки в `order_evaluations` (одна на модель) и возвращает их фронту.
+
+- **Rate-limit:** 20 запусков `evaluate` в час на пользователя, 10 `test`-пингов в минуту, 5 `refresh-catalog` в минуту.
+- **История:** `GET /journal/deals/{id}/evaluations` отдаёт последний результат на каждую из трёх моделей; кнопка **Re-evaluate** перетирает её.
+- **Стоимость:** карточка ответа показывает `prompt_tokens + completion_tokens` и `cost_usd`, если OpenRouter вернул `usage.cost`.
+- **Ключ:** хранится в `user_ai_settings.encrypted_openrouter_key` (Fernet, `MASTER_KEY`); никогда не возвращается из API наружу — только бейдж `Stored` / `Not set`.
+
+#### Файлы
+
+- `backend/app/ai/openrouter.py` — async-клиент OpenRouter (httpx, JSON-mode, обработка завёрнутого в ` ```json ` ответа).
+- `backend/app/ai/catalog.py` — live-fetch каталога, фильтрация frontier, in-process TTL-кэш, выбор дефолтных моделей.
+- `backend/app/ai/context.py` — сборка контекста сделки (свечи через `broker.fetch_klines`, индикаторы пур-Python без новых зависимостей).
+- `backend/app/ai/prompts.py` — system-prompt с JSON-схемой и markdown-юзер-prompt; разные формулировки для открытых vs. закрытых сделок.
+- `backend/app/api/ai_eval.py` — `POST/GET /journal/deals/{id}/evaluat{e,ions}`.
+- `backend/app/api/settings_ai.py` — `GET/PUT /settings/ai`, `POST /settings/ai/test`, `POST /settings/ai/refresh-catalog`.
+
+---
+
 ## Telegram-бот
 
 1. Создайте бота через [@BotFather](https://t.me/BotFather), получите токен.
@@ -471,6 +545,10 @@ docker compose restart backend signals news executor
 - `0005_market_sentiment` — `market_sentiment` (F&G) и `reddit_hype`
 - `0006_app_settings` — зашифрованные системные настройки (ключи новостных API)
 - `0007_trading_intelligence` — таблицы аудита Tools: `portfolio_rebalance_runs`, `execution_route_quotes`, `optimizer_runs`, `scenario_runs`
+- `0008_user_admin_approval` — поля `is_admin` / `is_approved` на пользователях (admin-approved registration)
+- `0009_signal_order_indexes` — индексы на `signals.created_at` и `orders.created_at` для быстрых выборок журнала
+- `0010_order_journal_fields` — поля журнала на ордерах: `exit_price`, `fee_usdt`, `notes`, `tags`
+- `0011_ai_evaluations` — `user_ai_settings` (зашифрованный OpenRouter key + 3 выбранные модели) и `order_evaluations` (по строке на каждую модель × сделку)
 
 ---
 
