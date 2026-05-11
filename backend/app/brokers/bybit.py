@@ -73,6 +73,9 @@ class BybitBroker(Broker):
         t = await self.client.fetch_ticker(symbol)
         return float(t.get("last") or t.get("close") or 0.0)
 
+    async def order_book(self, symbol: str, *, limit: int = 20) -> dict:
+        return await self.client.fetch_order_book(symbol, limit=limit)
+
     async def place_market(
         self,
         symbol: str,

@@ -125,6 +125,96 @@ export type BacktestResult = {
   equity_curve: { t: number; equity: number }[];
 };
 
+export type RebalancePlan = {
+  run_id: number;
+  total_exposure_usdt: number;
+  by_exchange: Record<string, number>;
+  by_asset: Record<string, number>;
+  intents: Array<{
+    exchange: string;
+    symbol: string;
+    base: string;
+    side: "buy" | "sell";
+    notional_usdt: number;
+    qty: number;
+    reduce_only: boolean;
+    reason: string;
+  }>;
+  warnings: string[];
+  can_execute: boolean;
+  executions?: Array<{ ok: boolean; reason: string; order_id: number | null }>;
+};
+
+export type RouteCandidate = {
+    exchange: string;
+    symbol: string;
+    ok: boolean;
+    expected_price: number | null;
+    mark_price: number | null;
+    spread_bps: number | null;
+    slippage_bps: number | null;
+    fee_usdt: number | null;
+    total_cost_usdt: number | null;
+    reason: string;
+};
+
+export type RouteResult = {
+  run_id: number;
+  request: { symbol: string; side: "buy" | "sell"; notional_usdt: number };
+  candidates: RouteCandidate[];
+  best: RouteCandidate | null;
+  can_execute: boolean;
+  execution?: { ok: boolean; reason: string; order_id: number | null };
+};
+
+export type OptimizerResult = {
+  run_id: number;
+  exchange: string;
+  symbol: string;
+  best: OptimizerCandidate | null;
+  candidates: OptimizerCandidate[];
+};
+
+export type OptimizerCandidate = {
+  params: Record<string, unknown>;
+  score: number;
+  stability: number;
+  train: {
+    trades: number;
+    win_rate: number;
+    total_pnl_usdt: number;
+    total_pnl_pct: number;
+    max_drawdown_pct: number;
+  };
+  validation: {
+    trades: number;
+    win_rate: number;
+    total_pnl_usdt: number;
+    total_pnl_pct: number;
+    max_drawdown_pct: number;
+  };
+};
+
+export type ScenarioResult = {
+  run_id: number;
+  positions: Array<{
+    symbol: string;
+    base: string;
+    side: string;
+    shock_pct: number;
+    notional_usdt: number;
+    pnl_usdt: number;
+  }>;
+  total_pnl_usdt: number;
+  projected_daily_pnl_usdt: number;
+  daily_loss_limit_usdt: number;
+  daily_loss_usage: number;
+  daily_loss_breached: boolean;
+  max_drawdown_estimate_pct: number;
+  preset: string;
+  price_shocks: Record<string, number>;
+};
+
 export type ExchangeInfo = {
   id: string;
   label: string;

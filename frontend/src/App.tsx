@@ -10,6 +10,7 @@ import Positions from "@/pages/Positions";
 import Settings from "@/pages/Settings";
 import Strategies from "@/pages/Strategies";
 import StrategyEdit from "@/pages/StrategyEdit";
+import Tools from "@/pages/Tools";
 
 function Protected({ children }: { children: JSX.Element }) {
   const { me, loading } = useAuth();
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="positions" element={<Positions />} />
             <Route path="strategies" element={<Strategies />} />
             <Route path="strategies/:id" element={<StrategyEdit />} />
+            <Route path="tools" element={<Tools />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -13,6 +13,7 @@ from app.auth.deps import current_user
 from app.brokers.factory import SUPPORTED
 from app.db.models import (
     Instrument,
+    OptimizerRun,
     Strategy,
     User,
     UserStrategySelection,
@@ -343,6 +344,16 @@ class BacktestIn(BaseModel):
     notional_usdt: float = 100.0
 
 
+class OptimizeIn(BaseModel):
+    exchange: str = "binance"
+    symbol: str
+    param_grid: dict[str, list] = {}
+    train_hours: int = 168
+    validation_hours: int = 72
+    notional_usdt: float = 100.0
+    max_candidates: int = 64
+
+
 @router.post("/{strategy_id}/backtest")
 async def backtest_strategy(
     strategy_id: int,
@@ -392,3 +403,80 @@ async def backtest_strategy(
         "trades": [t.__dict__ for t in result.trades],
         "equity_curve": result.equity_curve,
     }
+
+
+@router.post("/{strategy_id}/optimize")
+async def optimize_strategy(
+    strategy_id: int,
+    body: OptimizeIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    s = (
+        await db.execute(select(Strategy).where(Strategy.id == strategy_id))
+    ).scalar_one_or_none()
+    if s is None:
+        raise HTTPException(404, "strategy not found")
+    if not (s.is_builtin or s.user_id == user.id):
+        raise HTTPException(403)
+    try:
+        parsed = load_yaml_text(s.code)
+    except StrategyParseError as e:
+        raise HTTPException(400, f"strategy YAML invalid: {e}")
+    exchange = body.exchange.lower()
+    if exchange not in SUPPORTED:
+        raise HTTPException(400, f"unknown exchange {exchange!r}")
+    sym = body.symbol.upper()
+    instrument = (
+        await db.execute(
+            select(Instrument).where(
+                Instrument.exchange == exchange, Instrument.symbol == sym
+            )
+        )
+    ).scalar_one_or_none()
+    if instrument is None or not instrument.active:
+        raise HTTPException(400, f"{exchange}:{sym} not in instruments cache")
+    from app.optimizer.walk_forward import optimize
+
+    result = await optimize(
+        parsed,
+        exchange,
+        sym,
+        param_grid=body.param_grid,
+        train_hours=max(24, min(body.train_hours, 720)),
+        validation_hours=max(6, min(body.validation_hours, 720)),
+        notional_usdt=body.notional_usdt,
+        max_candidates=max(1, min(body.max_candidates, 128)),
+    )
+    row = OptimizerRun(
+        user_id=user.id,
+        strategy_id=s.id,
+        status="completed",
+        input=body.model_dump(),
+        result=result,
+        completed_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"run_id": row.id, **result}
+
+
+@router.get("/{strategy_id}/optimize/{run_id}")
+async def get_optimizer_run(
+    strategy_id: int,
+    run_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    row = (
+        await db.execute(
+            select(OptimizerRun)
+            .where(OptimizerRun.id == run_id)
+            .where(OptimizerRun.strategy_id == strategy_id)
+            .where(OptimizerRun.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, "optimizer run not found")
+    return {"run_id": row.id, **row.result}

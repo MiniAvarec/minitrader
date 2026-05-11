@@ -71,6 +71,9 @@ class Broker(ABC):
     async def mark_price(self, symbol: str) -> float: ...
 
     @abstractmethod
+    async def order_book(self, symbol: str, *, limit: int = 20) -> dict: ...
+
+    @abstractmethod
     async def place_market(
         self,
         symbol: str,

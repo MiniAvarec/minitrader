@@ -5,12 +5,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import exchanges as exchange_routes
+from app.api import execution as execution_routes
 from app.api import integrations as integration_routes
 from app.api import internal as internal_routes
 from app.api import klines as klines_routes
 from app.api import news as news_routes
 from app.api import orders as order_routes
+from app.api import portfolio as portfolio_routes
 from app.api import positions as position_routes
+from app.api import risk_tools as risk_tool_routes
 from app.api import sentiment as sentiment_routes
 from app.api import settings as settings_routes
 from app.api import signals as signal_routes
@@ -52,4 +55,7 @@ app.include_router(internal_routes.router, prefix="/api")
 app.include_router(exchange_routes.router, prefix="/api")
 app.include_router(integration_routes.router, prefix="/api")
 app.include_router(watchlist_routes.router, prefix="/api")
+app.include_router(portfolio_routes.router, prefix="/api")
+app.include_router(execution_routes.router, prefix="/api")
+app.include_router(risk_tool_routes.router, prefix="/api")
 app.include_router(ws_live.router)

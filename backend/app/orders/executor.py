@@ -46,6 +46,33 @@ async def place_for_signal(
     user: User,
     signal: SignalModel,
     notional_usdt: Optional[float] = None,
+    exchange_override: str | None = None,
+) -> tuple[bool, str, Order | None]:
+    return await place_market_order(
+        db=db,
+        user=user,
+        exchange=exchange_override or signal.exchange or "binance",
+        symbol=signal.symbol,
+        side=signal.side.value,
+        notional_usdt=notional_usdt,
+        sl=signal.sl,
+        tp=signal.tp,
+        signal_id=signal.id,
+    )
+
+
+async def place_market_order(
+    *,
+    db: AsyncSession,
+    user: User,
+    exchange: str,
+    symbol: str,
+    side: str,
+    notional_usdt: Optional[float] = None,
+    sl: float | None = None,
+    tp: float | None = None,
+    signal_id: int | None = None,
+    reduce_only: bool = False,
 ) -> tuple[bool, str, Order | None]:
     cfg = (
         await db.execute(select(RiskConfig).where(RiskConfig.user_id == user.id))
@@ -53,33 +80,33 @@ async def place_for_signal(
     if cfg is None:
         return False, "risk config missing", None
     notional = notional_usdt or cfg.max_notional_usdt
-    exchange = signal.exchange or "binance"
     broker = await get_broker_for_user(db, user.id, exchange)
     if broker is None:
         return False, f"no {exchange} API key on file", None
     try:
         positions = await broker.positions()
-        ok, results = await evaluate_all(
-            db,
-            user,
-            notional_usdt=notional,
-            sl=signal.sl,
-            tp=signal.tp,
-            open_positions=len(positions),
-            signal_id=signal.id,
-        )
-        if not ok:
-            failed = next((c for c in results if not c.ok), None)
-            return False, f"risk: {failed.name}: {failed.reason}", None
+        if not reduce_only:
+            ok, results = await evaluate_all(
+                db,
+                user,
+                notional_usdt=notional,
+                sl=sl,
+                tp=tp,
+                open_positions=len(positions),
+                signal_id=signal_id,
+            )
+            if not ok:
+                failed = next((c for c in results if not c.ok), None)
+                return False, f"risk: {failed.name}: {failed.reason}", None
 
         instrument = (
             await db.execute(
                 select(Instrument).where(
-                    Instrument.exchange == exchange, Instrument.symbol == signal.symbol
+                    Instrument.exchange == exchange, Instrument.symbol == symbol
                 )
             )
         ).scalar_one_or_none()
-        ccxt_sym = instrument.ccxt_symbol if instrument else to_ccxt_symbol(exchange, signal.symbol)
+        ccxt_sym = instrument.ccxt_symbol if instrument else to_ccxt_symbol(exchange, symbol)
         mark = await broker.mark_price(ccxt_sym)
         if mark <= 0:
             return False, "could not fetch mark price", None
@@ -91,18 +118,18 @@ async def place_for_signal(
             ), None
         if instrument and instrument.min_qty and qty < instrument.min_qty:
             return False, f"qty {qty} below min_qty {instrument.min_qty}", None
-        sl_price = round_price(signal.sl, instrument) if (signal.sl and instrument) else signal.sl
-        tp_price = round_price(signal.tp, instrument) if (signal.tp and instrument) else signal.tp
-        side = "buy" if signal.side == SignalSide.buy else "sell"
+        sl_price = round_price(sl, instrument) if (sl and instrument) else sl
+        tp_price = round_price(tp, instrument) if (tp and instrument) else tp
+        side_norm = "buy" if side == "buy" else "sell"
         order = await broker.place_market(
-            ccxt_sym, side, qty, sl=sl_price, tp=tp_price
+            ccxt_sym, side_norm, qty, sl=sl_price, tp=tp_price, reduce_only=reduce_only
         )
         row = Order(
             user_id=user.id,
-            signal_id=signal.id,
+            signal_id=signal_id,
             exchange=exchange,
-            symbol=signal.symbol,
-            side=signal.side,
+            symbol=symbol,
+            side=SignalSide.buy if side_norm == "buy" else SignalSide.sell,
             qty=qty,
             notional_usdt=notional,
             entry_price=mark,

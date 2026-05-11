@@ -4,6 +4,7 @@ import {
   Briefcase,
   BrainCircuit,
   LayoutDashboard,
+  Route,
   Settings as SettingsIcon,
   TrendingUp,
 } from "lucide-react";
@@ -23,6 +24,7 @@ const ITEMS = [
   { to: "/signals", label: "Signals", icon: <Activity /> },
   { to: "/positions", label: "Positions", icon: <Briefcase /> },
   { to: "/strategies", label: "Strategies", icon: <BrainCircuit /> },
+  { to: "/tools", label: "Tools", icon: <Route /> },
   { to: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
