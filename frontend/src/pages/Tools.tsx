@@ -16,7 +16,7 @@ import { useAuth } from "@/auth";
 import PairBadge from "@/components/PairBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -37,9 +37,35 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+const TOOL_BLURBS: Record<string, { title: string; lede: string }> = {
+  rebalancer: {
+    title: "Portfolio Rebalancer",
+    lede: "Reads open positions across every connected exchange and proposes reduce-only orders that bring exposure under your per-exchange and per-asset concentration caps. Preview is read-only; Execute is enabled only in auto_execute mode.",
+  },
+  router: {
+    title: "Smart Execution Router",
+    lede: "For a symbol/side/notional, polls the L2 order book on each keyed venue, simulates the market fill, and scores spread + slippage + taker fee. Picks the venue with the lowest total cost. Quote is read-only; Execute fires a market order on the winning venue (auto_execute only).",
+  },
+  optimizer: {
+    title: "Walk-Forward Optimizer",
+    lede: "Runs your strategy across a parameter grid with a train + out-of-sample validation split. Each combination is scored on validation PnL, win-rate, train/validation stability, and drawdown penalty. Use to find robust settings instead of curve-fitting one window.",
+  },
+  scenarios: {
+    title: "Scenario Simulator",
+    lede: "Applies a shock preset (gap down/up, volatility cascade, stop series, correlation spike) at the chosen magnitude to your current live positions, then projects PnL against today's realized PnL and your daily loss limit. Flags whether the shock would trip the kill-switch.",
+  },
+};
+
 export default function Tools() {
   return (
-    <div className="max-w-7xl">
+    <div className="max-w-7xl flex flex-col gap-4">
+      <div>
+        <h1 className="text-xl font-semibold">Trading intelligence tools</h1>
+        <p className="text-sm text-muted-foreground">
+          Helpers that sit on top of your live positions, watchlist and strategies: balance concentration,
+          pick the cheapest venue for a trade, search a strategy parameter grid, and stress-test the book against shocks.
+        </p>
+      </div>
       <Tabs defaultValue="rebalancer" className="flex flex-col gap-4">
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="rebalancer" className="gap-2"><RefreshCw className="h-4 w-4" />Rebalancer</TabsTrigger>
@@ -53,6 +79,18 @@ export default function Tools() {
         <TabsContent value="scenarios"><Scenarios /></TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function ToolIntro({ kind }: { kind: keyof typeof TOOL_BLURBS }) {
+  const blurb = TOOL_BLURBS[kind];
+  return (
+    <Card className="col-span-12">
+      <CardHeader className="space-y-1">
+        <CardTitle className="text-base">{blurb.title}</CardTitle>
+        <CardDescription>{blurb.lede}</CardDescription>
+      </CardHeader>
+    </Card>
   );
 }
 
@@ -84,8 +122,15 @@ function Rebalancer() {
   }
   return (
     <div className="grid grid-cols-12 gap-4">
+      <ToolIntro kind="rebalancer" />
       <Card className="col-span-12 lg:col-span-4">
-        <CardHeader><CardTitle>Portfolio Rebalancer</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Inputs</CardTitle>
+          <CardDescription>
+            Caps as a fraction of total open notional. The plan emits reduce-only sells/buys that
+            shrink any exchange or base asset above its cap. Orders below the minimum USDT are dropped.
+          </CardDescription>
+        </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <NumberField label="Max exchange share %" value={maxExchange} onChange={setMaxExchange} />
           <NumberField label="Max asset share %" value={maxAsset} onChange={setMaxAsset} />
@@ -105,7 +150,13 @@ function Rebalancer() {
         </CardContent>
       </Card>
       <Card className="col-span-12 lg:col-span-8">
-        <CardHeader><CardTitle>Plan</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Plan</CardTitle>
+          <CardDescription>
+            Total exposure across all venues, number of generated reduce-only orders, and per-position
+            reasons (which cap was exceeded). Run id is saved in the audit log.
+          </CardDescription>
+        </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {plan ? (
             <>
@@ -158,8 +209,15 @@ function ExecutionRouter() {
   });
   return (
     <div className="grid grid-cols-12 gap-4">
+      <ToolIntro kind="router" />
       <Card className="col-span-12 lg:col-span-4">
-        <CardHeader><CardTitle>Smart Execution Router</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Order</CardTitle>
+          <CardDescription>
+            Choose a watchlist pair, side and USDT notional. Optional SL/TP are attached when the route
+            is executed. Quote returns scored venues; Execute fires a MARKET order on the best one.
+          </CardDescription>
+        </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <PairSelect value={pair} onChange={setPair} watchlist={watchlist.data ?? []} />
           <div className="grid grid-cols-2 gap-2">
@@ -180,7 +238,14 @@ function ExecutionRouter() {
         </CardContent>
       </Card>
       <Card className="col-span-12 lg:col-span-8">
-        <CardHeader><CardTitle>Venues</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Venues</CardTitle>
+          <CardDescription>
+            One row per connected exchange. <code>Expected</code> is the volume-weighted fill price walking
+            the book, <code>Spread</code> is top-of-book in bps, <code>Slippage</code> is the cost of crossing
+            the book, <code>Cost</code> is fee + spread + slippage in USDT. The highlighted row is the winner.
+          </CardDescription>
+        </CardHeader>
         <CardContent>{result ? <RouteTable result={result} /> : <Empty />}</CardContent>
       </Card>
     </div>
@@ -214,8 +279,16 @@ function Optimizer() {
   });
   return (
     <div className="grid grid-cols-12 gap-4">
+      <ToolIntro kind="optimizer" />
       <Card className="col-span-12 lg:col-span-4">
-        <CardHeader><CardTitle>Walk-Forward Optimizer</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Search</CardTitle>
+          <CardDescription>
+            Pair + strategy + a JSON grid of params to sweep. Each combo is backtested on a 168h
+            train+validation window and re-tested on the last 72h as validation. Up to 64 combos per run.
+            Example: <code>{'{"rsi_overbought":[65,70,75]}'}</code>.
+          </CardDescription>
+        </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <PairSelect value={pair} onChange={setPair} watchlist={watchlist.data ?? []} />
           <Select value={strategyId} onValueChange={setStrategyId}>
@@ -230,7 +303,14 @@ function Optimizer() {
         </CardContent>
       </Card>
       <Card className="col-span-12 lg:col-span-8">
-        <CardHeader><CardTitle>Ranked Parameters</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Ranked Parameters</CardTitle>
+          <CardDescription>
+            Sorted by composite score = validation PnL + 0.25·win-rate + 0.25·stability − 0.75·drawdown.
+            <code> Stability</code> measures how close train and validation PnL are — high stability means
+            the params didn't overfit. Pick the top robust row, not just the top PnL row.
+          </CardDescription>
+        </CardHeader>
         <CardContent>{result ? <OptimizerTable result={result} /> : <Empty />}</CardContent>
       </Card>
     </div>
@@ -248,8 +328,16 @@ function Scenarios() {
   });
   return (
     <div className="grid grid-cols-12 gap-4">
+      <ToolIntro kind="scenarios" />
       <Card className="col-span-12 lg:col-span-4">
-        <CardHeader><CardTitle>Scenario Simulator</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Shock</CardTitle>
+          <CardDescription>
+            Choose a preset and a magnitude in percent. Shocks are applied uniformly to every open
+            position; longs lose on a gap_down, shorts gain. <code>volatility_cascade</code> is 1.5× the
+            given magnitude. Read-only — nothing is sent to the exchange.
+          </CardDescription>
+        </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Select value={preset} onValueChange={setPreset}>
             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -266,7 +354,15 @@ function Scenarios() {
         </CardContent>
       </Card>
       <Card className="col-span-12 lg:col-span-8">
-        <CardHeader><CardTitle>Impact</CardTitle></CardHeader>
+        <CardHeader className="space-y-1">
+          <CardTitle>Impact</CardTitle>
+          <CardDescription>
+            <code>PnL</code> is the sum of per-position shocked losses. <code>Daily</code> adds today's
+            already-realized PnL on top. <code>Limit Used</code> is the share of your daily loss limit
+            consumed by the projected daily PnL; <code>Status</code> turns <strong>BREACH</strong> if it
+            would trip the kill-switch.
+          </CardDescription>
+        </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {result ? (
             <>

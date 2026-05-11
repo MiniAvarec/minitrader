@@ -18,10 +18,11 @@
 8. [Движок стратегий (DSL)](#движок-стратегий-dsl)
 9. [Сигналы, исполнение и риск-контроль](#сигналы-исполнение-и-риск-контроль)
 10. [Бэктест](#бэктест)
-11. [Telegram-бот](#telegram-бот)
-12. [Миграции БД и обновление](#миграции-бд-и-обновление)
-13. [Разработка и тесты](#разработка-и-тесты)
-14. [Технологический стек](#технологический-стек)
+11. [Инструменты на портфель (Tools)](#инструменты-на-портфель-tools)
+12. [Telegram-бот](#telegram-бот)
+13. [Миграции БД и обновление](#миграции-бд-и-обновление)
+14. [Разработка и тесты](#разработка-и-тесты)
+15. [Технологический стек](#технологический-стек)
 
 ---
 
@@ -40,6 +41,8 @@
 **Риск-контур.** Лимит на размер позиции (USDT), дневной лимит убытка (kill-switch), максимум одновременных позиций, обязательность SL/TP. Срабатывания записываются в `risk_events` с указанием причины.
 
 **Бэктест на тех же стратегиях.** Прокатываете YAML-стратегию по историческим клайнам выбранной пары, получаете win-rate, PnL, кривую эквити, журнал сделок.
+
+**Аналитические инструменты поверх живого портфеля.** Раздел **Tools** в UI: ребалансировщик концентрации, smart-роутер для выбора самой дешёвой биржи под заявку, walk-forward оптимизатор параметров стратегии, симулятор шок-сценариев против дневного лимита убытка.
 
 **Веб-интерфейс в стиле Bloomberg.** React + shadcn/ui, светлая и тёмная темы, командное меню, real-time обновления через WebSocket.
 
@@ -160,6 +163,7 @@ docker compose logs -f backend       # дождитесь "alembic upgrade head"
 - **Signals** — полный журнал сигналов с фильтрацией.
 - **Strategies** — список встроенных и пользовательских стратегий, форк и редактирование.
 - **Strategy Edit** — YAML-редактор с подсветкой и встроенным бэктестом.
+- **Tools** — четыре инструмента поверх живого портфеля: `Rebalancer`, `Smart Execution Router`, `Walk-Forward Optimizer`, `Scenario Simulator` (подробнее см. ниже).
 - **Settings** — все настройки в одном месте (см. ниже).
 
 ### Вкладки Settings
@@ -344,6 +348,90 @@ news_modifier:
 
 ---
 
+## Инструменты на портфель (Tools)
+
+Раздел **Tools** в UI (`/tools`) собирает четыре отдельных инструмента поверх живых позиций, watchlist и стратегий. Все экраны умеют работать в режиме «только просмотр» (preview / quote / simulate) — реальный ордер выставляется только если у пользователя включён `auto_execute`. Каждый запуск сохраняется в БД для аудита.
+
+### Portfolio Rebalancer
+
+Сводит открытые позиции со всех подключённых бирж в единое представление и предлагает **reduce-only** ордера, которые приводят концентрацию под заданные лимиты.
+
+**Параметры:**
+
+| Поле | Что задаёт |
+|---|---|
+| `Max exchange share %` | максимальная доля экспозиции на одной бирже от общего USDT-нотонала |
+| `Max asset share %` | максимальная доля одного базового актива (например, `BTC`) |
+| `Min order USDT` | заявки меньше этого порога отбрасываются (избегаем «пыли») |
+
+Бэкенд (`backend/app/portfolio/rebalancer.py`):
+
+1. Через каждый брокер тянет `positions()`, нормализует в `PositionExposure` (биржа, символ, base, side, нотонал, контракты, mark price).
+2. Считает суммарные доли `by_exchange` и `by_asset`. Для каждой группы, у которой `share > cap`, эмитит ордер на закрытие части позиций (от самых крупных к мелким) с причиной вида `exchange_share>0.60`.
+3. Дедуплицирует пересекающиеся интенты, ограничивает их нотоналом базовой позиции (нельзя «закрыть больше, чем открыто»).
+
+`POST /api/portfolio/rebalance/preview` — собрать план (`run_id` + список интентов + предупреждения).
+`POST /api/portfolio/rebalance/execute` — то же, но с реальной отправкой `reduce_only` MARKET-ордеров через `place_market_order`. Доступно только в `auto_execute`. История в таблице `portfolio_rebalance_runs`.
+
+### Smart Execution Router
+
+Для конкретной заявки (`symbol`, `side`, `notional_usdt`) опрашивает L2-стаканы на каждой подключённой бирже и выбирает площадку с минимальной полной стоимостью.
+
+**Метрики (`backend/app/execution/router.py`):**
+
+- **`expected_price`** — объёмо-взвешенная цена прохождения заявки по стакану (`estimate_market_fill`).
+- **`spread_bps`** — спред между лучшим bid/ask в bps.
+- **`slippage_bps`** — отклонение `expected_price` от вершины стакана.
+- **`fee_usdt`** — taker-комиссия (defaults: `binance 0.04%`, `okx 0.05%`, `bybit 0.055%`).
+- **`total_cost_usdt`** — `fee + notional × (spread + slippage)`. Минимизируется при выборе победителя.
+
+Если у пользователя на бирже нет ключа или инструмент не торгуется — площадка попадает в результат с `ok=false` и причиной (`missing API key`, `symbol unavailable`).
+
+`POST /api/execution/route` — получить котировки по всем площадкам и победителя.
+`POST /api/execution/route/execute` — выставить MARKET-ордер на победителе, опционально с SL/TP (`auto_execute` только). История в `execution_route_quotes`.
+
+### Walk-Forward Optimizer
+
+Подбирает параметры стратегии через раздельный train/validation split — чтобы не подгонять под одно окно.
+
+**Как работает (`backend/app/optimizer/walk_forward.py`):**
+
+1. Раскрывает `param_grid` ({"rsi_overbought":[65,70,75]} → 3 комбинации). Лимит — 64 комбинации на запуск.
+2. Для каждой комбинации запускает два бэктеста по существующему `backtest_run`: `train = 168ч (включает validation)` и `validation = последние 72ч` (значения по умолчанию).
+3. Считает композитный скор: `score = val_pnl + 0.25·win_rate + 0.25·stability − 0.75·max_drawdown`, где `stability = 1 − |train_pnl − val_pnl|`. Низкая стабильность → переобучение.
+4. Возвращает кандидатов, отсортированных по `score`, плюс `best`.
+
+`POST /api/strategies/{id}/optimize` с телом `{exchange, symbol, param_grid, train_hours, validation_hours, notional_usdt, max_candidates}`.
+`GET /api/strategies/{id}/optimize/{run_id}` — получить сохранённый результат. История в `optimizer_runs`.
+
+### Scenario Simulator
+
+Стресс-тест живого портфеля против шоковых пресетов. Ничего не отправляется на биржу — только проекция PnL и проверка дневного лимита убытка.
+
+**Пресеты (`backend/app/scenario/simulator.py`):**
+
+| Preset | Применяемый шок |
+|---|---|
+| `gap_down` | `−magnitude%` ко всем символам |
+| `gap_up` | `+magnitude%` ко всем |
+| `volatility_cascade` | `−1.5 × magnitude%` (расширенный обвал) |
+| `stop_series` | `−magnitude%` (каскад срабатываний стопов) |
+| `correlation_spike` | `−magnitude%` (одновременная корреляция → 1) |
+
+Можно вместо пресета передать кастомный `price_shocks` — словарь `{"*": -0.05, "BTCUSDT": -0.08}`. Поиск ключа: точный символ → `base` (например, `BTC`) → `*`.
+
+Для каждой позиции считается `pnl = notional × shock × ±1` (минус если `short`, плюс если `long`). Затем:
+
+- `total_pnl_usdt` — суммарный шок-эффект.
+- `projected_daily_pnl_usdt` — `today_realized + total`.
+- `daily_loss_usage` — какая доля `daily_loss_limit_usdt` (из `risk_configs`) уйдёт.
+- `daily_loss_breached` — `true`, если шок пробьёт kill-switch.
+
+`POST /api/risk/scenarios` с телом `{preset, magnitude_pct}` или `{price_shocks: {...}}`.
+`GET /api/risk/scenarios/{run_id}` — получить сохранённый результат. История в `scenario_runs`.
+
+---
+
 ## Telegram-бот
 
 1. Создайте бота через [@BotFather](https://t.me/BotFather), получите токен.
@@ -382,6 +470,7 @@ docker compose restart backend signals news executor
 - `0004_multi_exchange` — exchange-столбцы, `instruments`, `user_watchlist`, passphrase для OKX
 - `0005_market_sentiment` — `market_sentiment` (F&G) и `reddit_hype`
 - `0006_app_settings` — зашифрованные системные настройки (ключи новостных API)
+- `0007_trading_intelligence` — таблицы аудита Tools: `portfolio_rebalance_runs`, `execution_route_quotes`, `optimizer_runs`, `scenario_runs`
 
 ---
 
