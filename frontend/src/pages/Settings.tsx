@@ -18,6 +18,7 @@ import {
   getAISettings,
   IntegrationStatus,
   listIntegrations,
+  refreshAICatalog,
   RiskCfg,
   saveAISettings,
   saveIntegration,
@@ -532,6 +533,7 @@ function AIEvaluationTab() {
   const [modelC, setModelC] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (cfg.data) {
@@ -587,6 +589,19 @@ function AIEvaluationTab() {
       toast.success("OpenRouter key cleared");
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || "Failed");
+    }
+  }
+
+  async function refreshCatalog() {
+    setRefreshing(true);
+    try {
+      const r = await refreshAICatalog();
+      await qc.invalidateQueries({ queryKey: ["ai-settings"] });
+      toast.success(`Loaded ${r.count} frontier models from OpenRouter`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Catalog refresh failed");
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -676,10 +691,20 @@ function AIEvaluationTab() {
             models={models}
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          Each &ldquo;Evaluate with AI&rdquo; click on a deal runs all three
-          models in parallel. Pick a mix of labs for diverse perspectives.
-        </p>
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            Each &ldquo;Evaluate with AI&rdquo; click on a deal runs all three
+            models in parallel. Pick a mix of labs for diverse perspectives.
+          </span>
+          <button
+            type="button"
+            onClick={refreshCatalog}
+            disabled={refreshing}
+            className="underline hover:text-foreground shrink-0 ml-3 disabled:opacity-50"
+          >
+            {refreshing ? "Refreshing…" : "Refresh model list"}
+          </button>
+        </div>
 
         <div className="flex flex-wrap gap-2 pt-2">
           <Button onClick={save} disabled={busy || !dirty}>

@@ -476,7 +476,13 @@ export async function updateDealAnnotations(
 
 // ===== AI Evaluation =====
 
-export type AIModelOption = { id: string; label: string; lab: string };
+export type AIModelOption = {
+  id: string;
+  label: string;
+  lab: string;
+  created?: number;
+  context_length?: number | null;
+};
 
 export type AISettings = {
   has_key: boolean;
@@ -545,5 +551,15 @@ export async function evaluateDeal(dealId: number): Promise<AIEvaluateResponse> 
 
 export async function getDealEvaluations(dealId: number): Promise<AIEvaluateResponse> {
   const r = await api.get<AIEvaluateResponse>(`/journal/deals/${dealId}/evaluations`);
+  return r.data;
+}
+
+export async function refreshAICatalog(): Promise<{
+  count: number;
+  models: AIModelOption[];
+}> {
+  const r = await api.post<{ count: number; models: AIModelOption[] }>(
+    "/settings/ai/refresh-catalog",
+  );
   return r.data;
 }
