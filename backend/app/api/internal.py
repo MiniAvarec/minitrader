@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.db.models import Signal as SignalModel, SignalStatus, User
 from app.db.session import SessionLocal
 from app.orders.executor import place_for_signal
+from app.security import secrets_equal
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -26,7 +27,7 @@ async def telegram_action(
     body: TelegramAction,
     x_worker_secret: str | None = Header(default=None),
 ):
-    if x_worker_secret != get_settings().WORKER_SHARED_SECRET:
+    if not secrets_equal(x_worker_secret, get_settings().WORKER_SHARED_SECRET):
         raise HTTPException(401, "bad worker secret")
     async with SessionLocal() as db:
         user = (

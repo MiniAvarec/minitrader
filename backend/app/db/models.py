@@ -51,6 +51,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    # access control — admin approves new signups before they can log in
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # trading prefs
     mode: Mapped[TradingMode] = mapped_column(
         Enum(TradingMode), default=TradingMode.signal_only

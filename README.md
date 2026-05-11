@@ -518,6 +518,37 @@ uvicorn app.main:app --reload
 
 ---
 
+## Деплой на свой сервер (до 10 пользователей)
+
+Минимальный продакшен-сетап для small VPS с TLS на стороне облака (Cloudflare / ALB / любой L7-балансировщик):
+
+1. **Подготовка `.env`** — скопируйте `.env.example` в `.env` на сервере, задайте:
+   - `APP_ENV=prod`
+   - `JWT_SECRET`, `MASTER_KEY`, `WORKER_SHARED_SECRET`, `TELEGRAM_WEBHOOK_SECRET` — длинные случайные строки.
+   - `POSTGRES_PASSWORD` — сильный пароль (не `trader`).
+   - `REDIS_PASSWORD` — длинная случайная строка; `REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0`.
+   - `ADMIN_EMAIL` — ваш email; первый, кто зарегистрируется с этим адресом, получит права админа.
+   - `FRONTEND_ORIGIN` — публичный URL фронтенда (например `https://trader.example.com`).
+2. **Запуск:** `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
+   - Базовый `docker-compose.yml` остаётся dev-конфигом (live-reload, открытые порты Postgres/Redis). Оверлей `docker-compose.prod.yml` убирает всё лишнее, переключает фронт на nginx-сборку, добавляет `restart: unless-stopped`.
+   - Миграции (`alembic upgrade head`) выполняются автоматически при старте backend.
+3. **TLS:** ваш облачный edge терминирует HTTPS и проксирует на `http://<host>:80` (nginx-фронт), передавая `X-Forwarded-For` и `X-Forwarded-Proto`. Backend запускается с `--proxy-headers --forwarded-allow-ips=*`, поэтому cookies автоматически выставляются `Secure`, а rate-limit считается по реальному IP клиента.
+4. **Первый запуск:**
+   - Зарегистрируйтесь под `ADMIN_EMAIL` — аккаунт сразу активен, в сайдбаре появится пункт **Admin**.
+   - Друзья регистрируются как обычно, попадают в очередь **Pending** на `/admin`. Жмёте **Approve** — человек может войти.
+5. **Безопасность по умолчанию (после этого обновления):**
+   - Регистрации до одобрения админом не дают сессии.
+   - Rate-limit: 10 логинов/минута, 5 регистраций/час, 10 бэктестов/минута, 5 оптимизаций/минута (на IP).
+   - Cookies `HttpOnly + SameSite=Lax + Secure` (в prod), JWT действителен 24 ч, ws-токен — 5 мин.
+   - WebSocket `/ws/live` пропускает к пользователю только его собственные сигналы.
+   - Postgres и Redis недоступны с публичного IP, Redis под паролем.
+   - Заголовки `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `HSTS` выставляются автоматически.
+   - Лимит на размер тела запроса 1 MiB.
+
+Бэкап БД делается изнутри VPS: `docker compose exec postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup.sql`.
+
+---
+
 ## Лицензия и поддержка
 
 Self-hosted, ничего не отправляется наружу кроме запросов к выбранным биржам, новостным API и Telegram. Перед боевой торговлей — **обязательно прогоните стратегию через тестнет** и проверьте поведение риск-контура (особенно `daily_loss_limit_usdt`).

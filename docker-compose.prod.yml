@@ -1,0 +1,73 @@
+# Production overlay. Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# What this overlay changes vs. the base file (which is dev-oriented):
+#   - Removes host port publishing for postgres and redis (internal only).
+#   - Drops `--reload` from uvicorn and runs multiple workers behind --proxy-headers.
+#   - Removes bind mounts so containers run image code, not host code.
+#   - Switches the frontend to a multi-stage nginx image on port 80 that
+#     proxies /api and /ws to the backend.
+#   - Adds Redis authentication via REDIS_PASSWORD.
+#   - Marks every service `restart: unless-stopped`.
+
+services:
+  postgres:
+    ports: []  # internal-only on the docker network
+    restart: unless-stopped
+
+  redis:
+    ports: []
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    command:
+      - "sh"
+      - "-c"
+      - "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips=*"
+    volumes: []
+    restart: unless-stopped
+
+  ingestor:
+    volumes: []
+    restart: unless-stopped
+
+  instruments:
+    volumes: []
+    restart: unless-stopped
+
+  fillstream:
+    volumes: []
+    restart: unless-stopped
+
+  signals:
+    volumes: []
+    restart: unless-stopped
+
+  news:
+    volumes: []
+    restart: unless-stopped
+
+  telegram:
+    volumes: []
+    restart: unless-stopped
+
+  executor:
+    volumes: []
+    restart: unless-stopped
+
+  tracker:
+    volumes: []
+    restart: unless-stopped
+
+  frontend:
+    ports:
+      - "80:80"
+    command: ["nginx", "-g", "daemon off;"]
+    volumes: []
+    restart: unless-stopped

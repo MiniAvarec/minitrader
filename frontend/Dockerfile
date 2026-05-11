@@ -1,11 +1,15 @@
-FROM node:20-alpine
-
+## Build stage — install deps + produce static bundle.
+FROM node:20-alpine AS build
 WORKDIR /code
-
 COPY package.json package-lock.json* ./
-RUN npm install
-
+RUN npm ci
 COPY . .
+RUN npm run build
 
-EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+## Runtime stage — nginx serves the static bundle and proxies /api + /ws
+## to the backend container on the internal docker network.
+FROM nginx:1.27-alpine AS runtime
+COPY --from=build /code/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

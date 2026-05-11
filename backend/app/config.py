@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     MASTER_KEY: str  # Fernet key for encrypting API keys at rest
 
+    # First user registering with this email is auto-approved + granted admin.
+    # All other registrations are pending until an admin approves them.
+    ADMIN_EMAIL: str = ""
+
     DATABASE_URL: str
     REDIS_URL: str = "redis://redis:6379/0"
 

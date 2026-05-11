@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,8 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 
 @router.get("")
 async def list_signals(
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -22,7 +23,8 @@ async def list_signals(
             # Show: this user's signals; plus any legacy global signals (user_id NULL)
             .where(or_(Signal.user_id == user.id, Signal.user_id.is_(None)))
             .order_by(Signal.created_at.desc())
-            .limit(min(limit, 200))
+            .offset(offset)
+            .limit(limit)
         )
     ).all()
     return [

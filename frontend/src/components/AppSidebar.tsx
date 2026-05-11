@@ -6,8 +6,10 @@ import {
   LayoutDashboard,
   Route,
   Settings as SettingsIcon,
+  ShieldCheck,
   TrendingUp,
 } from "lucide-react";
+import { useAuth } from "@/auth";
 import {
   Sidebar,
   SidebarContent,
@@ -32,6 +34,10 @@ export function AppSidebar() {
   const location = useLocation();
   const nav = useNavigate();
   const { state } = useSidebar();
+  const { me } = useAuth();
+  const items = me?.is_admin
+    ? [...ITEMS, { to: "/admin", label: "Admin", icon: <ShieldCheck /> }]
+    : ITEMS;
 
   return (
     <Sidebar>
@@ -51,7 +57,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarMenu>
-          {ITEMS.map((it) => {
+          {items.map((it) => {
             const active =
               it.to === "/"
                 ? location.pathname === "/"

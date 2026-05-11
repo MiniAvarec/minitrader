@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import current_user
-from app.brokers.factory import SUPPORTED, get_broker
+from app.brokers.factory import SUPPORTED, get_broker, invalidate_user_creds
 from app.data.redis_io import make_redis
 from app.db.models import User
 from app.db.session import get_db
@@ -69,6 +69,7 @@ async def put_key(
         testnet=body.testnet,
         passphrase=body.passphrase,
     )
+    invalidate_user_creds(user.id, body.exchange)
     await _publish_keys_changed(user.id, body.exchange, present=True)
     return KeyStatus(exchange=row.exchange, label=row.label, has_key=True, testnet=row.testnet)
 
@@ -96,6 +97,7 @@ async def del_key(
 ):
     ok = await delete_key(db, user.id, exchange)
     if ok:
+        invalidate_user_creds(user.id, exchange)
         await _publish_keys_changed(user.id, exchange, present=False)
     return {"ok": ok}
 

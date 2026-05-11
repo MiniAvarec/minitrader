@@ -29,7 +29,15 @@ export default function Login() {
     e.preventDefault();
     setBusy(true);
     try {
-      await api.post(`/auth/${mode}`, { email, password });
+      const r = await api.post(`/auth/${mode}`, { email, password });
+      if (mode === "register" && r.data?.status === "pending") {
+        toast.success(
+          r.data?.message || "Account created — awaiting admin approval.",
+        );
+        setMode("login");
+        setPassword("");
+        return;
+      }
       await refresh();
       nav("/", { replace: true });
     } catch (e: any) {

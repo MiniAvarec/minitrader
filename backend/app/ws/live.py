@@ -16,10 +16,10 @@ router = APIRouter()
 
 @router.websocket("/ws/live")
 async def live(ws: WebSocket) -> None:
-    # Auth via query token (frontend passes ?token=<session-cookie-value>)
+    # Auth via short-lived query token (frontend gets it from /auth/ws-token).
     token = ws.query_params.get("token")
     try:
-        decode_token(token or "")
+        user_id = decode_token(token or "")
     except Exception:
         await ws.close(code=4401)
         return
@@ -35,7 +35,18 @@ async def live(ws: WebSocket) -> None:
                 payload = json.loads(msg["data"])
             except Exception:
                 continue
-            channel = msg.get("channel")
+            channel_raw = msg.get("channel")
+            channel = (
+                channel_raw.decode() if isinstance(channel_raw, bytes) else channel_raw
+            )
+            # Signals are per-user — the worker stamps `user_id` on every
+            # payload. Only forward signals that belong to this socket's user
+            # (or unowned/legacy broadcasts with user_id=None). News stays
+            # global because the worker has no per-user context.
+            if channel == SIGNAL_CHANNEL:
+                owner = payload.get("user_id")
+                if owner is not None and owner != user_id:
+                    continue
             payload["_channel"] = channel
             try:
                 await ws.send_json(payload)

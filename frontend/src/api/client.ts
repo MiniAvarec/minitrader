@@ -10,7 +10,30 @@ export type Me = {
   email: string;
   mode: "signal_only" | "auto_execute";
   telegram_chat_id: string | null;
+  is_admin: boolean;
 };
+
+export type AdminUserRow = {
+  id: number;
+  email: string;
+  is_admin: boolean;
+  is_approved: boolean;
+  created_at: string;
+};
+
+export async function listAdminUsers(): Promise<AdminUserRow[]> {
+  const r = await api.get<AdminUserRow[]>("/admin/users");
+  return r.data;
+}
+
+export async function approveUser(id: number): Promise<AdminUserRow> {
+  const r = await api.post<AdminUserRow>(`/admin/users/${id}/approve`);
+  return r.data;
+}
+
+export async function rejectUser(id: number): Promise<void> {
+  await api.post(`/admin/users/${id}/reject`);
+}
 
 export type SignalRow = {
   id: number;

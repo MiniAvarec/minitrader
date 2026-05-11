@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,8 @@ class ExecuteIn(BaseModel):
 
 @router.get("")
 async def list_orders(
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -27,7 +28,8 @@ async def list_orders(
             select(Order)
             .where(Order.user_id == user.id)
             .order_by(Order.created_at.desc())
-            .limit(min(limit, 200))
+            .offset(offset)
+            .limit(limit)
         )
     ).scalars().all()
     return [

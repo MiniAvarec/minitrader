@@ -4,13 +4,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import re
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import current_user
 from app.brokers.factory import SUPPORTED
+from app.security import limiter
 from app.db.models import (
     Instrument,
     OptimizerRun,
@@ -355,7 +356,9 @@ class OptimizeIn(BaseModel):
 
 
 @router.post("/{strategy_id}/backtest")
+@limiter.limit("10/minute")
 async def backtest_strategy(
+    request: Request,
     strategy_id: int,
     body: BacktestIn,
     user: User = Depends(current_user),
@@ -406,7 +409,9 @@ async def backtest_strategy(
 
 
 @router.post("/{strategy_id}/optimize")
+@limiter.limit("5/minute")
 async def optimize_strategy(
+    request: Request,
     strategy_id: int,
     body: OptimizeIn,
     user: User = Depends(current_user),
