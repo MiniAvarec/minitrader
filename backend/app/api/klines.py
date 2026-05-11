@@ -1,29 +1,44 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import current_user
+from app.brokers.factory import SUPPORTED
 from app.config import get_settings
 from app.data.redis_io import get_klines, make_redis
-from app.db.models import User
+from app.db.models import Instrument, User
+from app.db.session import get_db
 
 router = APIRouter(prefix="/klines", tags=["klines"])
 
 
-@router.get("/{symbol}/{tf}")
+@router.get("/{exchange}/{symbol}/{tf}")
 async def klines(
+    exchange: str,
     symbol: str,
     tf: str,
     limit: int = 200,
     user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    s = get_settings()
+    if exchange not in SUPPORTED:
+        raise HTTPException(404, "unknown exchange")
     sym = symbol.upper()
-    if sym not in s.symbols:
-        raise HTTPException(404, "symbol not tracked")
-    if tf not in s.timeframes:
+    s = get_settings()
+    if tf not in s.default_timeframes:
         raise HTTPException(404, "timeframe not tracked")
+    instrument = (
+        await db.execute(
+            select(Instrument).where(
+                Instrument.exchange == exchange, Instrument.symbol == sym
+            )
+        )
+    ).scalar_one_or_none()
+    if instrument is None:
+        raise HTTPException(404, "symbol not tracked")
     r = make_redis()
     try:
-        rows = await get_klines(r, sym, tf, limit=min(limit, 500))
-        return {"symbol": sym, "tf": tf, "klines": rows}
+        rows = await get_klines(r, exchange, sym, tf, limit=min(limit, 500))
+        return {"exchange": exchange, "symbol": sym, "tf": tf, "klines": rows}
     finally:
         await r.aclose()

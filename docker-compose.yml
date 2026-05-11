@@ -45,7 +45,31 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: ["python", "-m", "app.data.binance_stream"]
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "app.data.streams.manager"]
+    volumes:
+      - ./backend:/code
+
+  instruments:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "app.data.instruments_refresh"]
+    volumes:
+      - ./backend:/code
+
+  fillstream:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "app.orders.fill_stream"]
     volumes:
       - ./backend:/code
 

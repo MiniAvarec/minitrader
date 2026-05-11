@@ -14,6 +14,7 @@ async def upsert_key(
     *,
     label: str = "default",
     testnet: bool = True,
+    passphrase: str | None = None,
 ) -> ApiKey:
     existing = (
         await db.execute(
@@ -26,9 +27,11 @@ async def upsert_key(
     ).scalar_one_or_none()
     enc_key = encrypt(api_key)
     enc_secret = encrypt(api_secret)
+    enc_pass = encrypt(passphrase) if passphrase else None
     if existing:
         existing.encrypted_key = enc_key
         existing.encrypted_secret = enc_secret
+        existing.encrypted_passphrase = enc_pass
         existing.testnet = testnet
         await db.commit()
         await db.refresh(existing)
@@ -39,6 +42,7 @@ async def upsert_key(
         label=label,
         encrypted_key=enc_key,
         encrypted_secret=enc_secret,
+        encrypted_passphrase=enc_pass,
         testnet=testnet,
     )
     db.add(row)
@@ -49,7 +53,8 @@ async def upsert_key(
 
 async def load_key(
     db: AsyncSession, user_id: int, exchange: str, label: str = "default"
-) -> tuple[str, str, bool] | None:
+) -> tuple[str, str, bool, str | None] | None:
+    """Return (api_key, api_secret, testnet, passphrase | None) or None."""
     row = (
         await db.execute(
             select(ApiKey).where(
@@ -61,7 +66,15 @@ async def load_key(
     ).scalar_one_or_none()
     if not row:
         return None
-    return decrypt(row.encrypted_key), decrypt(row.encrypted_secret), row.testnet
+    passphrase = (
+        decrypt(row.encrypted_passphrase) if row.encrypted_passphrase else None
+    )
+    return (
+        decrypt(row.encrypted_key),
+        decrypt(row.encrypted_secret),
+        row.testnet,
+        passphrase,
+    )
 
 
 async def delete_key(
@@ -81,3 +94,15 @@ async def delete_key(
     await db.delete(row)
     await db.commit()
     return True
+
+
+async def list_keyed_exchanges(db: AsyncSession, user_id: int) -> list[str]:
+    """Return the distinct exchanges this user has a default-label key for."""
+    rows = (
+        await db.execute(
+            select(ApiKey.exchange).where(
+                ApiKey.user_id == user_id, ApiKey.label == "default"
+            )
+        )
+    ).all()
+    return sorted({r[0] for r in rows})

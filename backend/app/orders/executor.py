@@ -20,32 +20,24 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.brokers.binance import BinanceBroker
-from app.config import get_settings
+from app.brokers.base import to_ccxt_symbol
+from app.brokers.factory import get_broker_for_user
 from app.data.redis_io import SIGNAL_CHANNEL, make_redis, subscribe
-from app.db.models import Order, RiskConfig, Signal as SignalModel, SignalSide, TradingMode, User
+from app.db.models import (
+    Instrument,
+    Order,
+    RiskConfig,
+    Signal as SignalModel,
+    SignalSide,
+    TradingMode,
+    User,
+)
 from app.db.session import SessionLocal
-from app.keys.store import load_key
+from app.orders.rounding import round_qty, round_price
 from app.risk.checks import evaluate_all
 
 log = logging.getLogger("executor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-
-
-async def _broker_for(db: AsyncSession, user: User) -> BinanceBroker | None:
-    loaded = await load_key(db, user.id, "binance")
-    if not loaded:
-        return None
-    api_key, api_secret, testnet = loaded
-    return BinanceBroker(api_key, api_secret, testnet=testnet)
-
-
-def _ccxt_symbol(symbol: str) -> str:
-    """Convert BTCUSDT -> BTC/USDT:USDT for ccxt USDT-M futures."""
-    if symbol.endswith("USDT"):
-        base = symbol[:-4]
-        return f"{base}/USDT:USDT"
-    return symbol
 
 
 async def place_for_signal(
@@ -61,9 +53,10 @@ async def place_for_signal(
     if cfg is None:
         return False, "risk config missing", None
     notional = notional_usdt or cfg.max_notional_usdt
-    broker = await _broker_for(db, user)
+    exchange = signal.exchange or "binance"
+    broker = await get_broker_for_user(db, user.id, exchange)
     if broker is None:
-        return False, "no Binance API key on file", None
+        return False, f"no {exchange} API key on file", None
     try:
         positions = await broker.positions()
         ok, results = await evaluate_all(
@@ -79,25 +72,42 @@ async def place_for_signal(
             failed = next((c for c in results if not c.ok), None)
             return False, f"risk: {failed.name}: {failed.reason}", None
 
-        ccxt_sym = _ccxt_symbol(signal.symbol)
+        instrument = (
+            await db.execute(
+                select(Instrument).where(
+                    Instrument.exchange == exchange, Instrument.symbol == signal.symbol
+                )
+            )
+        ).scalar_one_or_none()
+        ccxt_sym = instrument.ccxt_symbol if instrument else to_ccxt_symbol(exchange, signal.symbol)
         mark = await broker.mark_price(ccxt_sym)
         if mark <= 0:
             return False, "could not fetch mark price", None
-        qty = round(notional / mark, 4)
+        raw_qty = notional / mark
+        qty = round_qty(raw_qty, instrument) if instrument else round(raw_qty, 4)
+        if instrument and qty * mark < instrument.min_notional:
+            return False, (
+                f"qty*mark {qty * mark:.2f} below min_notional {instrument.min_notional}"
+            ), None
+        if instrument and instrument.min_qty and qty < instrument.min_qty:
+            return False, f"qty {qty} below min_qty {instrument.min_qty}", None
+        sl_price = round_price(signal.sl, instrument) if (signal.sl and instrument) else signal.sl
+        tp_price = round_price(signal.tp, instrument) if (signal.tp and instrument) else signal.tp
         side = "buy" if signal.side == SignalSide.buy else "sell"
         order = await broker.place_market(
-            ccxt_sym, side, qty, sl=signal.sl, tp=signal.tp
+            ccxt_sym, side, qty, sl=sl_price, tp=tp_price
         )
         row = Order(
             user_id=user.id,
             signal_id=signal.id,
+            exchange=exchange,
             symbol=signal.symbol,
             side=signal.side,
             qty=qty,
             notional_usdt=notional,
             entry_price=mark,
-            sl=signal.sl,
-            tp=signal.tp,
+            sl=sl_price,
+            tp=tp_price,
             exchange_order_id=str(order.get("id") or ""),
             status="open",
         )

@@ -6,6 +6,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     JSON,
     LargeBinary,
@@ -69,10 +70,11 @@ class ApiKey(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    exchange: Mapped[str] = mapped_column(String(32))  # "binance"
+    exchange: Mapped[str] = mapped_column(String(32))  # "binance" | "okx" | "bybit"
     label: Mapped[str] = mapped_column(String(64), default="default")
     encrypted_key: Mapped[bytes] = mapped_column(LargeBinary)
     encrypted_secret: Mapped[bytes] = mapped_column(LargeBinary)
+    encrypted_passphrase: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     testnet: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -103,6 +105,7 @@ class Signal(Base):
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    exchange: Mapped[str] = mapped_column(String(16), default="binance", index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     side: Mapped[SignalSide] = mapped_column(Enum(SignalSide))
     confidence: Mapped[float] = mapped_column(Float)
@@ -145,6 +148,7 @@ class UserStrategySelection(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
+    exchange: Mapped[str] = mapped_column(String(16), primary_key=True)
     symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
     strategy_id: Mapped[int] = mapped_column(
         ForeignKey("strategies.id", ondelete="CASCADE"), index=True
@@ -159,6 +163,7 @@ class Order(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     signal_id: Mapped[int | None] = mapped_column(ForeignKey("signals.id"), nullable=True)
+    exchange: Mapped[str] = mapped_column(String(16), default="binance", index=True)
     symbol: Mapped[str] = mapped_column(String(32))
     side: Mapped[SignalSide] = mapped_column(Enum(SignalSide))
     qty: Mapped[float] = mapped_column(Float)
@@ -189,6 +194,47 @@ class RiskEvent(Base):
     )
 
 
+class Instrument(Base):
+    __tablename__ = "instruments"
+
+    exchange: Mapped[str] = mapped_column(String(16), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    base: Mapped[str] = mapped_column(String(16))
+    quote: Mapped[str] = mapped_column(String(16))
+    contract_type: Mapped[str] = mapped_column(String(16), default="usdt-perp")
+    tick_size: Mapped[float] = mapped_column(Float, default=0.0)
+    lot_size: Mapped[float] = mapped_column(Float, default=0.0)
+    min_qty: Mapped[float] = mapped_column(Float, default=0.0)
+    min_notional: Mapped[float] = mapped_column(Float, default=0.0)
+    ccxt_symbol: Mapped[str] = mapped_column(String(64), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class UserWatchlistEntry(Base):
+    __tablename__ = "user_watchlist"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["exchange", "symbol"],
+            ["instruments.exchange", "instruments.symbol"],
+            ondelete="CASCADE",
+            name="fk_user_watchlist_instrument",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    exchange: Mapped[str] = mapped_column(String(16), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
 class NewsItem(Base):
     __tablename__ = "news_items"
 
@@ -203,3 +249,45 @@ class NewsItem(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (UniqueConstraint("source", "external_id"),)
+
+
+class MarketSentiment(Base):
+    """Time series of market-regime scores (e.g. Fear & Greed Index)."""
+    __tablename__ = "market_sentiment"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    value: Mapped[float] = mapped_column(Float)
+    classification: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+
+
+class RedditHype(Base):
+    """Latest community-hype score per symbol from Reddit polling."""
+    __tablename__ = "reddit_hype"
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    score: Mapped[float] = mapped_column(Float, default=0.0)  # 0..1
+    mentions_60m: Mapped[int] = mapped_column(Integer, default=0)
+    upvotes_60m: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+
+
+class AppSetting(Base):
+    """System-wide configuration values (e.g. third-party API keys).
+
+    Values are stored encrypted at rest with the same Fernet key used for
+    user exchange credentials. Used for shared integrations whose data the
+    news/signals workers consume on behalf of all users.
+    """
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    encrypted_value: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )

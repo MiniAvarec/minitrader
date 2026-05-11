@@ -1,5 +1,4 @@
 from functools import lru_cache
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,12 +12,22 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str = "redis://redis:6379/0"
 
+    # Multi-exchange: which exchanges this deployment is allowed to talk to.
+    ENABLED_EXCHANGES: str = "binance,okx,bybit"
     BINANCE_USE_TESTNET: bool = True
-    BINANCE_SYMBOLS: str = "BTCUSDT,ETHUSDT"
-    BINANCE_TIMEFRAMES: str = "1m,3m,15m,1h"
+    OKX_USE_TESTNET: bool = True
+    BYBIT_USE_TESTNET: bool = True
+
+    # Timeframes the ingestor subscribes to by default. Per-user strategies can
+    # use any subset of these.
+    DEFAULT_TIMEFRAMES: str = "1m,3m,15m,1h"
 
     FINNHUB_API_KEY: str = ""
     CRYPTOPANIC_API_KEY: str = ""
+    CRYPTOCOMPARE_API_KEY: str = ""
+    NEWSDATA_API_KEY: str = ""
+    # Reddit's public JSON endpoints require a non-default User-Agent.
+    REDDIT_USER_AGENT: str = "minitrader/0.1"
 
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_WEBHOOK_SECRET: str = "dev"
@@ -27,12 +36,19 @@ class Settings(BaseSettings):
     FRONTEND_ORIGIN: str = "http://localhost:5173"
 
     @property
-    def symbols(self) -> list[str]:
-        return [s.strip().upper() for s in self.BINANCE_SYMBOLS.split(",") if s.strip()]
+    def enabled_exchanges(self) -> list[str]:
+        return [e.strip().lower() for e in self.ENABLED_EXCHANGES.split(",") if e.strip()]
 
     @property
-    def timeframes(self) -> list[str]:
-        return [t.strip() for t in self.BINANCE_TIMEFRAMES.split(",") if t.strip()]
+    def default_timeframes(self) -> list[str]:
+        return [t.strip() for t in self.DEFAULT_TIMEFRAMES.split(",") if t.strip()]
+
+    def testnet_for(self, exchange: str) -> bool:
+        return {
+            "binance": self.BINANCE_USE_TESTNET,
+            "okx": self.OKX_USE_TESTNET,
+            "bybit": self.BYBIT_USE_TESTNET,
+        }.get(exchange, True)
 
 
 @lru_cache

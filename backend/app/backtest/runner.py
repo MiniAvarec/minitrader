@@ -9,11 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
-import httpx
 import pandas as pd
 
+from app.brokers.factory import get_broker
 from app.config import get_settings
 from app.signals.dsl.evaluator import evaluate_strategy
 from app.signals.dsl.market_ctx import MarketCtx
@@ -46,64 +45,44 @@ class BacktestResult:
     equity_curve: list[dict]
 
 
-# Map timeframe → seconds + Binance interval label
+# Map timeframe → seconds
 _TF_SECONDS = {"1m": 60, "3m": 180, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
 
 
-def _rest_base() -> str:
-    return (
-        "https://testnet.binancefuture.com"
-        if get_settings().BINANCE_USE_TESTNET
-        else "https://fapi.binance.com"
-    )
-
-
-async def _fetch_klines(symbol: str, tf: str, hours: int) -> list[dict]:
+async def _fetch_klines(exchange: str, symbol: str, tf: str, hours: int) -> list[dict]:
+    """Paginated klines fetch via the broker's public REST endpoint."""
     bars_needed = max(200, (hours * 3600) // _TF_SECONDS.get(tf, 900) + 50)
     bars_needed = min(bars_needed, 1500)
-    base = _rest_base()
+    s = get_settings()
+    broker = get_broker(exchange, "", "", testnet=s.testnet_for(exchange))
     out: list[dict] = []
     end_ms: int | None = None
-    async with httpx.AsyncClient(base_url=base, timeout=20.0) as client:
+    try:
         while bars_needed > 0:
             limit = min(bars_needed, 500)
-            params: dict[str, Any] = {"symbol": symbol, "interval": tf, "limit": limit}
-            if end_ms is not None:
-                params["endTime"] = end_ms
-            r = await client.get("/fapi/v1/klines", params=params)
-            r.raise_for_status()
-            rows = r.json()
+            rows = await broker.fetch_klines(symbol, tf, end_ms=end_ms, limit=limit)
             if not rows:
                 break
-            chunk = [
-                {
-                    "open_time": int(x[0]),
-                    "open": float(x[1]),
-                    "high": float(x[2]),
-                    "low": float(x[3]),
-                    "close": float(x[4]),
-                    "volume": float(x[5]),
-                    "close_time": int(x[6]),
-                }
-                for x in rows
-            ]
-            out = chunk + out
-            end_ms = chunk[0]["open_time"] - 1
-            bars_needed -= len(chunk)
-            if len(chunk) < limit:
+            out = rows + out
+            end_ms = rows[0]["open_time"] - 1
+            bars_needed -= len(rows)
+            if len(rows) < limit:
                 break
+    finally:
+        await broker.close()
     return out
 
 
 async def run(
     strategy: StrategyDef,
+    exchange: str,
     symbol: str,
     *,
     hours: int = 168,
     notional_usdt: float = 100.0,
 ) -> BacktestResult:
     tfs = sorted(set(strategy.timeframes) | {strategy.sl.tf, strategy.tp.tf})
-    raw = {tf: await _fetch_klines(symbol, tf, hours) for tf in tfs}
+    raw = {tf: await _fetch_klines(exchange, symbol, tf, hours) for tf in tfs}
     frames = {
         tf: pd.DataFrame(rows)[["open", "high", "low", "close", "volume"]].astype(float)
         if rows

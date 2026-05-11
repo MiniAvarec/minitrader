@@ -3,7 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Lock, Play, Save, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { api, BacktestResult, StrategyDetail } from "@/api/client";
+import {
+  api,
+  BacktestResult,
+  getWatchlist,
+  StrategyDetail,
+  WatchlistEntry,
+} from "@/api/client";
 import StrategyEditor from "@/components/StrategyEditor";
 import BacktestPanel from "@/components/BacktestPanel";
 import { Badge } from "@/components/ui/badge";
@@ -36,9 +42,20 @@ export default function StrategyEdit() {
     text: string;
   } | null>(null);
   const [bt, setBt] = useState<BacktestResult | null>(null);
-  const [btSymbol, setBtSymbol] = useState("BTCUSDT");
+  const [btPair, setBtPair] = useState<string>("");
   const [btHours, setBtHours] = useState(168);
   const [btBusy, setBtBusy] = useState(false);
+
+  const { data: watchlist = [] } = useQuery<WatchlistEntry[]>({
+    queryKey: ["watchlist"],
+    queryFn: getWatchlist,
+  });
+
+  useEffect(() => {
+    if (!btPair && watchlist.length > 0) {
+      setBtPair(`${watchlist[0].exchange}:${watchlist[0].symbol}`);
+    }
+  }, [watchlist, btPair]);
 
   useEffect(() => {
     if (strategy) {
@@ -79,11 +96,14 @@ export default function StrategyEdit() {
   }
 
   async function runBacktest() {
+    if (!btPair) return;
+    const [exchange, symbol] = btPair.split(":");
     setBtBusy(true);
     setBt(null);
     try {
       const r = await api.post(`/strategies/${id}/backtest`, {
-        symbol: btSymbol,
+        exchange,
+        symbol,
         hours: btHours,
         notional_usdt: 100,
       });
@@ -165,14 +185,20 @@ export default function StrategyEdit() {
           <CardContent className="flex flex-col gap-3">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex flex-col gap-1">
-                <Label htmlFor="bt-symbol">Symbol</Label>
-                <Select value={btSymbol} onValueChange={setBtSymbol}>
-                  <SelectTrigger id="bt-symbol" className="w-32">
-                    <SelectValue />
+                <Label htmlFor="bt-symbol">Pair</Label>
+                <Select value={btPair} onValueChange={setBtPair}>
+                  <SelectTrigger id="bt-symbol" className="w-48">
+                    <SelectValue placeholder="Add a pair…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="BTCUSDT">BTCUSDT</SelectItem>
-                    <SelectItem value="ETHUSDT">ETHUSDT</SelectItem>
+                    {watchlist.map((p) => (
+                      <SelectItem
+                        key={`${p.exchange}:${p.symbol}`}
+                        value={`${p.exchange}:${p.symbol}`}
+                      >
+                        {p.exchange.toUpperCase()} · {p.symbol}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

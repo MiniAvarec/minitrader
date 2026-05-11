@@ -14,27 +14,38 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.brokers.binance import BinanceBroker
-from app.db.models import Order, User
+from app.brokers.base import Broker, to_ccxt_symbol
+from app.brokers.factory import get_broker_for_user
+from app.data.redis_io import make_redis
+from app.db.models import ApiKey, Order, User
 from app.db.session import SessionLocal
-from app.keys.store import load_key
 
 log = logging.getLogger("tracker")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 POLL_INTERVAL_S = 30
+FILLSTREAM_HEARTBEAT_FRESH_S = 60
 
 
-def _ccxt_symbol(symbol: str) -> str:
-    if symbol.endswith("USDT"):
-        return f"{symbol[:-4]}/USDT:USDT"
-    return symbol
+async def _fillstream_alive(r, user_id: int, exchange: str) -> bool:
+    try:
+        ts = await r.get(f"fillstream:hb:{user_id}:{exchange}")
+        if not ts:
+            return False
+        return (datetime.now(timezone.utc).timestamp() - float(ts)) < FILLSTREAM_HEARTBEAT_FRESH_S
+    except Exception:
+        return False
 
 
-async def _close_orphans(db: AsyncSession, user: User, broker: BinanceBroker) -> None:
+async def _close_orphans(
+    db: AsyncSession, user: User, exchange: str, broker: Broker, *, fill_alive: bool
+) -> None:
     open_orders = (
         await db.execute(
-            select(Order).where(Order.user_id == user.id).where(Order.status == "open")
+            select(Order)
+            .where(Order.user_id == user.id)
+            .where(Order.exchange == exchange)
+            .where(Order.status == "open")
         )
     ).scalars().all()
     if not open_orders:
@@ -42,18 +53,21 @@ async def _close_orphans(db: AsyncSession, user: User, broker: BinanceBroker) ->
     positions = await broker.positions()
     open_syms = {p["symbol"] for p in positions}
     for order in open_orders:
-        ccxt_sym = _ccxt_symbol(order.symbol)
+        ccxt_sym = to_ccxt_symbol(exchange, order.symbol)
         if ccxt_sym in open_syms:
             continue
-        # Position no longer open — pull realized PnL since order creation.
+        if fill_alive:
+            # The user-data WS was supposed to detect this. Log a gap warning so
+            # we notice that primary failed and backup is doing real work.
+            log.warning(
+                "tracker.gap_found user=%s exchange=%s order=%s — fillstream missed it",
+                user.id, exchange, order.id,
+            )
         try:
             since_ms = int(order.created_at.timestamp() * 1000)
-            income = await broker.client.fapiprivate_get_income(
-                {"symbol": order.symbol, "incomeType": "REALIZED_PNL", "startTime": since_ms}
-            )
-            pnl = sum(float(r.get("income", 0.0)) for r in income or [])
+            pnl = await broker.fetch_realized_pnl(order.symbol, since_ms)
         except Exception as e:
-            log.warning("income pull failed for order %s: %s", order.id, e)
+            log.warning("realized PnL pull failed for order %s: %s", order.id, e)
             pnl = 0.0
         order.realized_pnl_usdt = pnl
         order.status = "closed"
@@ -63,20 +77,33 @@ async def _close_orphans(db: AsyncSession, user: User, broker: BinanceBroker) ->
 
 
 async def main() -> None:
+    r = make_redis()
     while True:
         try:
             async with SessionLocal() as db:
-                users = (await db.execute(select(User))).scalars().all()
-                for user in users:
-                    loaded = await load_key(db, user.id, "binance")
-                    if loaded is None:
+                rows = (
+                    await db.execute(
+                        select(ApiKey.user_id, ApiKey.exchange).where(
+                            ApiKey.label == "default"
+                        )
+                    )
+                ).all()
+                for user_id, exchange in rows:
+                    user = (
+                        await db.execute(select(User).where(User.id == user_id))
+                    ).scalar_one_or_none()
+                    if user is None:
                         continue
-                    api_key, api_secret, testnet = loaded
-                    broker = BinanceBroker(api_key, api_secret, testnet=testnet)
+                    broker = await get_broker_for_user(db, user.id, exchange)
+                    if broker is None:
+                        continue
+                    fill_alive = await _fillstream_alive(r, user.id, exchange)
                     try:
-                        await _close_orphans(db, user, broker)
+                        await _close_orphans(db, user, exchange, broker, fill_alive=fill_alive)
                     except Exception as e:
-                        log.warning("user %s tracker error: %s", user.id, e)
+                        log.warning(
+                            "user %s exchange %s tracker error: %s", user.id, exchange, e
+                        )
                     finally:
                         await broker.close()
         except Exception as e:

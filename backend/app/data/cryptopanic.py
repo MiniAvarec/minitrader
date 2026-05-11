@@ -6,20 +6,21 @@ from datetime import datetime, timezone
 
 import httpx
 
-from app.config import get_settings
+from app.data._symbols import code_to_perp
+from app.settings_store import get_setting
 
 log = logging.getLogger("cryptopanic")
 BASE = "https://cryptopanic.com/api/v1"
 
 
 async def fetch_news() -> list[dict]:
-    s = get_settings()
-    if not s.CRYPTOPANIC_API_KEY:
+    api_key = await get_setting("cryptopanic_api_key")
+    if not api_key:
         return []
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.get(
             f"{BASE}/posts/",
-            params={"auth_token": s.CRYPTOPANIC_API_KEY, "kind": "news", "public": "true"},
+            params={"auth_token": api_key, "kind": "news", "public": "true"},
         )
         r.raise_for_status()
         data = r.json()
@@ -29,9 +30,9 @@ async def fetch_news() -> list[dict]:
         sentiment = _votes_to_sentiment(votes)
         symbols = []
         for c in row.get("currencies") or []:
-            code = (c.get("code") or "").upper()
-            if code in {"BTC", "ETH", "SOL", "XRP", "BNB"}:
-                symbols.append(code + "USDT")
+            perp = code_to_perp(c.get("code") or "")
+            if perp:
+                symbols.append(perp)
         out.append(
             {
                 "source": "cryptopanic",

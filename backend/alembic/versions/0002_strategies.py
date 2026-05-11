@@ -110,9 +110,9 @@ def upgrade() -> None:
             sa.text(
                 """
                 INSERT INTO strategies (user_id, slug, name, description, code, is_builtin, version, created_at, updated_at)
-                SELECT NULL, :slug, :name, :description, :code, true, 1, :ts, :ts
+                SELECT NULL, CAST(:slug AS varchar), :name, :description, :code, true, 1, :ts, :ts
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM strategies WHERE user_id IS NULL AND slug = :slug
+                    SELECT 1 FROM strategies WHERE user_id IS NULL AND slug = CAST(:slug AS varchar)
                 )
                 """
             ),

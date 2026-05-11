@@ -10,8 +10,14 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import current_user
-from app.config import get_settings
-from app.db.models import Strategy, User, UserStrategySelection
+from app.brokers.factory import SUPPORTED
+from app.db.models import (
+    Instrument,
+    Strategy,
+    User,
+    UserStrategySelection,
+    UserWatchlistEntry,
+)
 from app.db.session import get_db
 from app.signals.dsl.loader import StrategyParseError, load_yaml_text
 
@@ -44,6 +50,7 @@ class StrategyListItem(BaseModel):
 
 
 class SelectionOut(BaseModel):
+    exchange: str
     symbol: str
     strategy_id: int
     enabled: bool
@@ -119,11 +126,15 @@ async def list_selections(
         )
     ).scalars().all()
     return [
-        SelectionOut(symbol=r.symbol, strategy_id=r.strategy_id, enabled=r.enabled) for r in rows
+        SelectionOut(
+            exchange=r.exchange, symbol=r.symbol, strategy_id=r.strategy_id, enabled=r.enabled
+        )
+        for r in rows
     ]
 
 
 class SelectionIn(BaseModel):
+    exchange: str
     symbol: str
     strategy_id: int
     enabled: bool = True
@@ -142,19 +153,36 @@ async def upsert_selection(
         raise HTTPException(404, "strategy not found")
     if not (s.is_builtin or s.user_id == user.id):
         raise HTTPException(403, "cannot use someone else's strategy")
+    exchange = body.exchange.lower()
+    if exchange not in SUPPORTED:
+        raise HTTPException(400, f"unknown exchange {exchange!r}")
     sym = body.symbol.upper()
-    if sym not in get_settings().symbols:
-        raise HTTPException(400, f"symbol {sym!r} is not tracked")
+    in_watchlist = (
+        await db.execute(
+            select(UserWatchlistEntry).where(
+                UserWatchlistEntry.user_id == user.id,
+                UserWatchlistEntry.exchange == exchange,
+                UserWatchlistEntry.symbol == sym,
+            )
+        )
+    ).scalar_one_or_none()
+    if in_watchlist is None:
+        raise HTTPException(400, f"{exchange}:{sym} is not in your watchlist")
     existing = (
         await db.execute(
             select(UserStrategySelection)
             .where(UserStrategySelection.user_id == user.id)
+            .where(UserStrategySelection.exchange == exchange)
             .where(UserStrategySelection.symbol == sym)
         )
     ).scalar_one_or_none()
     if existing is None:
         existing = UserStrategySelection(
-            user_id=user.id, symbol=sym, strategy_id=body.strategy_id, enabled=body.enabled
+            user_id=user.id,
+            exchange=exchange,
+            symbol=sym,
+            strategy_id=body.strategy_id,
+            enabled=body.enabled,
         )
         db.add(existing)
     else:
@@ -162,11 +190,14 @@ async def upsert_selection(
         existing.enabled = body.enabled
         existing.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    return SelectionOut(symbol=sym, strategy_id=body.strategy_id, enabled=body.enabled)
+    return SelectionOut(
+        exchange=exchange, symbol=sym, strategy_id=body.strategy_id, enabled=body.enabled
+    )
 
 
-@router.delete("/selections/{symbol}")
+@router.delete("/selections/{exchange}/{symbol}")
 async def delete_selection(
+    exchange: str,
     symbol: str,
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
@@ -175,6 +206,7 @@ async def delete_selection(
         await db.execute(
             select(UserStrategySelection)
             .where(UserStrategySelection.user_id == user.id)
+            .where(UserStrategySelection.exchange == exchange.lower())
             .where(UserStrategySelection.symbol == symbol.upper())
         )
     ).scalar_one_or_none()
@@ -305,6 +337,7 @@ async def validate_yaml(
 
 
 class BacktestIn(BaseModel):
+    exchange: str = "binance"
     symbol: str
     hours: int = 168
     notional_usdt: float = 100.0
@@ -328,15 +361,28 @@ async def backtest_strategy(
         parsed = load_yaml_text(s.code)
     except StrategyParseError as e:
         raise HTTPException(400, f"strategy YAML invalid: {e}")
+    exchange = body.exchange.lower()
+    if exchange not in SUPPORTED:
+        raise HTTPException(400, f"unknown exchange {exchange!r}")
     sym = body.symbol.upper()
-    if sym not in get_settings().symbols:
-        raise HTTPException(400, f"symbol {sym!r} is not tracked")
+    instrument = (
+        await db.execute(
+            select(Instrument).where(
+                Instrument.exchange == exchange, Instrument.symbol == sym
+            )
+        )
+    ).scalar_one_or_none()
+    if instrument is None or not instrument.active:
+        raise HTTPException(400, f"{exchange}:{sym} not in instruments cache")
     hours = max(6, min(body.hours, 720))
 
     from app.backtest.runner import run as bt_run
 
-    result = await bt_run(parsed, sym, hours=hours, notional_usdt=body.notional_usdt)
+    result = await bt_run(
+        parsed, exchange, sym, hours=hours, notional_usdt=body.notional_usdt
+    )
     return {
+        "exchange": exchange,
         "symbol": result.symbol,
         "hours": result.hours,
         "win_rate": result.win_rate,

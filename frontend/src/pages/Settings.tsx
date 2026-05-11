@@ -3,15 +3,32 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   KeyRound,
+  Newspaper,
   Send,
   ShieldAlert,
   Sliders,
   Target,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, RiskCfg } from "@/api/client";
+import {
+  api,
+  deleteIntegration,
+  IntegrationStatus,
+  listIntegrations,
+  RiskCfg,
+  saveIntegration,
+  testIntegration,
+} from "@/api/client";
 import { useAuth } from "@/auth";
+import AddPairDialog from "@/components/AddPairDialog";
+import PairBadge from "@/components/PairBadge";
 import StrategyPicker from "@/components/StrategyPicker";
+import {
+  getWatchlist,
+  removeWatchlist,
+  WatchlistEntry,
+} from "@/api/client";
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,47 +43,42 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 
+type KeyStatus = {
+  exchange: string;
+  label: string;
+  has_key: boolean;
+  testnet: boolean | null;
+};
+
+const EXCHANGES: { id: string; label: string; needsPassphrase: boolean }[] = [
+  { id: "binance", label: "Binance USDT-M Futures", needsPassphrase: false },
+  { id: "okx", label: "OKX Perpetual Swaps", needsPassphrase: true },
+  { id: "bybit", label: "Bybit Linear Perps", needsPassphrase: false },
+];
+
 export default function Settings() {
   const { me, refresh } = useAuth();
   const qc = useQueryClient();
 
-  // --- API keys
-  const [apiKey, setApiKey] = useState("");
-  const [apiSecret, setApiSecret] = useState("");
-  const [testnet, setTestnet] = useState(true);
-
-  const keys = useQuery({
+  const keys = useQuery<KeyStatus[]>({
     queryKey: ["keys"],
     queryFn: async () => (await api.get("/keys")).data,
   });
 
-  async function saveKey() {
-    try {
-      const t = await api.post("/keys/test", {
-        exchange: "binance",
-        api_key: apiKey,
-        api_secret: apiSecret,
-        testnet,
-      });
-      await api.put("/keys", {
-        exchange: "binance",
-        api_key: apiKey,
-        api_secret: apiSecret,
-        testnet,
-      });
-      toast.success(`Saved · USDT balance $${t.data.usdt_balance.toFixed(2)}`);
-      setApiKey("");
-      setApiSecret("");
-      qc.invalidateQueries({ queryKey: ["keys"] });
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "failed");
-    }
+  const watchlist = useQuery<WatchlistEntry[]>({
+    queryKey: ["watchlist"],
+    queryFn: getWatchlist,
+  });
+
+  async function deleteKey(exchange: string) {
+    await api.delete(`/keys/${exchange}`);
+    qc.invalidateQueries({ queryKey: ["keys"] });
+    toast.success(`${exchange} key removed`);
   }
 
-  async function deleteKey() {
-    await api.delete("/keys/binance");
-    qc.invalidateQueries({ queryKey: ["keys"] });
-    toast.success("API key removed");
+  async function removePair(exchange: string, symbol: string) {
+    await removeWatchlist(exchange, symbol);
+    qc.invalidateQueries({ queryKey: ["watchlist"] });
   }
 
   // --- Risk
@@ -106,20 +118,16 @@ export default function Settings() {
   }
 
   const auto = me?.mode === "auto_execute";
-  const stored = keys.data
-    ? keys.data
-        .filter((k: any) => k.has_key)
-        .map((k: any) => `${k.exchange}${k.testnet ? " (testnet)" : ""}`)
-        .join(", ") || null
-    : null;
 
   return (
     <div className="max-w-4xl">
       <Tabs defaultValue="strategies" orientation="vertical" className="flex flex-col gap-4 md:flex-row md:gap-6">
         <TabsList className="flex h-auto flex-row md:flex-col items-stretch justify-start gap-1 bg-transparent p-0 md:w-52 md:flex-shrink-0 overflow-x-auto md:overflow-visible">
           <SettingsTab value="strategies" icon={<Target className="h-4 w-4" />} label="Strategies" />
+          <SettingsTab value="pairs" icon={<Target className="h-4 w-4" />} label="Pairs" />
           <SettingsTab value="mode" icon={<Sliders className="h-4 w-4" />} label="Trading mode" />
-          <SettingsTab value="api" icon={<KeyRound className="h-4 w-4" />} label="Binance API" />
+          <SettingsTab value="api" icon={<KeyRound className="h-4 w-4" />} label="Exchanges" />
+          <SettingsTab value="integrations" icon={<Newspaper className="h-4 w-4" />} label="Integrations" />
           <SettingsTab value="risk" icon={<ShieldAlert className="h-4 w-4" />} label="Risk" />
           <SettingsTab value="telegram" icon={<Send className="h-4 w-4" />} label="Telegram" />
         </TabsList>
@@ -128,13 +136,59 @@ export default function Settings() {
           <TabsContent value="strategies" className="mt-0">
             <Card>
               <CardHeader>
-                <CardTitle>Strategy per symbol</CardTitle>
+                <CardTitle>Strategy per pair</CardTitle>
                 <CardDescription>
-                  Pick which strategy fires for each tracked symbol. Default uses the built-in <em>Multi-TF Confluence</em>.
+                  Pick which strategy fires for each tracked (exchange, symbol). Default
+                  uses the built-in <em>Multi-TF Confluence</em>.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <StrategyPicker />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="pairs" className="mt-0">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Watchlist</CardTitle>
+                  <CardDescription>
+                    Add pairs from any connected exchange. The streams manager auto-subscribes.
+                  </CardDescription>
+                </div>
+                <AddPairDialog />
+              </CardHeader>
+              <CardContent>
+                {(!watchlist.data || watchlist.data.length === 0) && (
+                  <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
+                    No pairs yet.
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  {watchlist.data?.map((p) => (
+                    <div
+                      key={`${p.exchange}:${p.symbol}`}
+                      className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center gap-3">
+                        <PairBadge exchange={p.exchange} symbol={p.symbol} />
+                        <span className="text-xs text-muted-foreground">
+                          tick {p.tick_size} · lot {p.lot_size} · min $
+                          {p.min_notional}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => removePair(p.exchange, p.symbol)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -175,57 +229,24 @@ export default function Settings() {
           </TabsContent>
 
           <TabsContent value="api" className="mt-0">
-            <Card>
-              <CardHeader>
-                <CardTitle>Binance API key</CardTitle>
-                <CardDescription>
-                  Use a futures-enabled, IP-whitelisted key with no withdrawal permission.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="api-key">API key</Label>
-                  <Input
-                    id="api-key"
-                    placeholder="64-char API key"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="font-mono"
+            <div className="flex flex-col gap-3">
+              {EXCHANGES.map((ex) => {
+                const status = keys.data?.find((k) => k.exchange === ex.id);
+                return (
+                  <ExchangeKeyCard
+                    key={ex.id}
+                    exchange={ex}
+                    status={status}
+                    onDelete={() => deleteKey(ex.id)}
+                    onSaved={() => qc.invalidateQueries({ queryKey: ["keys"] })}
                   />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="api-secret">API secret</Label>
-                  <Input
-                    id="api-secret"
-                    placeholder="••••••••"
-                    type="password"
-                    value={apiSecret}
-                    onChange={(e) => setApiSecret(e.target.value)}
-                    className="font-mono"
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border border-border p-3">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium">Testnet</span>
-                    <span className="text-xs text-muted-foreground">
-                      Use testnet.binancefuture.com instead of mainnet.
-                    </span>
-                  </div>
-                  <Switch checked={testnet} onCheckedChange={setTestnet} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button onClick={saveKey} disabled={!apiKey || !apiSecret}>
-                    Test &amp; save
-                  </Button>
-                  <Button variant="outline" onClick={deleteKey}>
-                    Remove
-                  </Button>
-                  <div className="ml-auto text-xs text-muted-foreground font-mono uppercase tracking-wider">
-                    Stored: {stored ?? "none"}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="integrations" className="mt-0">
+            <IntegrationsTab />
           </TabsContent>
 
           <TabsContent value="risk" className="mt-0">
@@ -358,5 +379,251 @@ function SettingsTab({
       {icon}
       <span>{label}</span>
     </TabsTrigger>
+  );
+}
+
+function IntegrationsTab() {
+  const qc = useQueryClient();
+  const integrations = useQuery<IntegrationStatus[]>({
+    queryKey: ["integrations"],
+    queryFn: listIntegrations,
+  });
+
+  async function remove(slug: string) {
+    await deleteIntegration(slug);
+    qc.invalidateQueries({ queryKey: ["integrations"] });
+    toast.success("Removed");
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Card>
+        <CardHeader>
+          <CardTitle>News &amp; sentiment integrations</CardTitle>
+          <CardDescription>
+            System-wide keys used by the news worker and signal engine. Stored
+            encrypted in the database. <code>.env</code> values still work as
+            a fallback for fresh deployments.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+      {integrations.data?.map((status) => (
+        <IntegrationCard
+          key={status.slug}
+          status={status}
+          onDelete={() => remove(status.slug)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["integrations"] })}
+        />
+      ))}
+    </div>
+  );
+}
+
+function IntegrationCard({
+  status,
+  onDelete,
+  onSaved,
+}: {
+  status: IntegrationStatus;
+  onDelete: () => void;
+  onSaved: () => void;
+}) {
+  const [value, setValue] = useState(status.value ?? "");
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (!value.trim()) return;
+    setBusy(true);
+    try {
+      const t = await testIntegration(status.slug, value.trim());
+      await saveIntegration(status.slug, value.trim());
+      toast.success(`${status.label}: ${t.detail}`);
+      if (status.secret) setValue("");
+      onSaved();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const sourceLabel = status.in_db
+    ? "Stored in DB"
+    : status.in_env
+      ? "Loaded from .env"
+      : "Not set";
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>{status.label}</CardTitle>
+          <CardDescription>
+            {status.description}{" "}
+            <Badge variant="muted" className="ml-1 normal-case">
+              {sourceLabel}
+            </Badge>
+          </CardDescription>
+        </div>
+        {status.in_db && (
+          <Button variant="outline" size="sm" onClick={onDelete}>
+            Remove
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label>{status.secret ? "API key" : "Value"}</Label>
+          <Input
+            type={status.secret ? "password" : "text"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="font-mono"
+            placeholder={
+              status.secret
+                ? status.in_db
+                  ? "•••••••• (enter a new key to replace)"
+                  : status.in_env
+                    ? "Loaded from environment — enter to override"
+                    : "Paste API key"
+                : "Value"
+            }
+          />
+        </div>
+        <Button
+          onClick={save}
+          disabled={busy || !value.trim()}
+          className="w-fit"
+        >
+          {busy ? "Testing…" : "Test & save"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExchangeKeyCard({
+  exchange,
+  status,
+  onDelete,
+  onSaved,
+}: {
+  exchange: { id: string; label: string; needsPassphrase: boolean };
+  status?: KeyStatus;
+  onDelete: () => void;
+  onSaved: () => void;
+}) {
+  const [apiKey, setApiKey] = useState("");
+  const [apiSecret, setApiSecret] = useState("");
+  const [passphrase, setPassphrase] = useState("");
+  const [testnet, setTestnet] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const body: any = {
+        exchange: exchange.id,
+        api_key: apiKey,
+        api_secret: apiSecret,
+        testnet,
+      };
+      if (exchange.needsPassphrase) body.passphrase = passphrase;
+      const t = await api.post("/keys/test", body);
+      await api.put("/keys", body);
+      toast.success(
+        `${exchange.label} saved · USDT balance $${t.data.usdt_balance.toFixed(2)}`,
+      );
+      setApiKey("");
+      setApiSecret("");
+      setPassphrase("");
+      onSaved();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const stored = status?.has_key;
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>{exchange.label}</CardTitle>
+          <CardDescription>
+            {stored ? (
+              <>
+                Stored{" "}
+                <Badge variant="muted" className="ml-1 normal-case">
+                  {status?.testnet ? "testnet" : "live"}
+                </Badge>
+              </>
+            ) : (
+              "No key on file."
+            )}
+          </CardDescription>
+        </div>
+        {stored && (
+          <Button variant="outline" size="sm" onClick={onDelete}>
+            Remove
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label>API key</Label>
+          <Input
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            className="font-mono"
+            placeholder="API key"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>API secret</Label>
+          <Input
+            type="password"
+            value={apiSecret}
+            onChange={(e) => setApiSecret(e.target.value)}
+            className="font-mono"
+            placeholder="••••••••"
+          />
+        </div>
+        {exchange.needsPassphrase && (
+          <div className="flex flex-col gap-1.5">
+            <Label>Passphrase</Label>
+            <Input
+              type="password"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              className="font-mono"
+              placeholder="••••••••"
+            />
+          </div>
+        )}
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">Testnet</span>
+            <span className="text-xs text-muted-foreground">
+              Use the sandbox endpoint instead of mainnet.
+            </span>
+          </div>
+          <Switch checked={testnet} onCheckedChange={setTestnet} />
+        </div>
+        <Button
+          onClick={save}
+          disabled={
+            busy ||
+            !apiKey ||
+            !apiSecret ||
+            (exchange.needsPassphrase && !passphrase)
+          }
+          className="w-fit"
+        >
+          {busy ? "Testing…" : "Test & save"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

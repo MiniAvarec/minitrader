@@ -60,6 +60,8 @@ INDICATOR_REFS: dict[str, tuple[int, int]] = {
     "stochrsi_d": (5, 5),
     "news_sentiment": (1, 1),        # [minutes]
     "news_blackout": (0, 0),
+    "fear_greed": (0, 0),            # 0..100 market regime
+    "reddit_hype": (0, 0),           # 0..1 community-mention score for ctx.symbol
     "minute_of_hour": (0, 0),
     "hour_of_day_utc": (0, 0),
     "param": (1, 1),                 # marker: {param: name}

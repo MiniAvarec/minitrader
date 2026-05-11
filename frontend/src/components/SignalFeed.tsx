@@ -87,6 +87,9 @@ export default function SignalFeed({
 
                 <div className="flex flex-col leading-tight min-w-0">
                   <span className="font-mono text-sm font-semibold tracking-wider">
+                    <span className="mr-1 text-[10px] uppercase text-muted-foreground">
+                      {s.exchange}
+                    </span>
                     {s.symbol}
                   </span>
                   {s.strategy_name && (

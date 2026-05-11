@@ -4,14 +4,18 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import exchanges as exchange_routes
+from app.api import integrations as integration_routes
 from app.api import internal as internal_routes
 from app.api import klines as klines_routes
 from app.api import news as news_routes
 from app.api import orders as order_routes
 from app.api import positions as position_routes
+from app.api import sentiment as sentiment_routes
 from app.api import settings as settings_routes
 from app.api import signals as signal_routes
 from app.api import strategies as strategy_routes
+from app.api import watchlist as watchlist_routes
 from app.auth import routes as auth_routes
 from app.config import get_settings
 from app.keys import routes as key_routes
@@ -41,7 +45,11 @@ app.include_router(order_routes.router, prefix="/api")
 app.include_router(position_routes.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(news_routes.router, prefix="/api")
+app.include_router(sentiment_routes.router, prefix="/api")
 app.include_router(klines_routes.router, prefix="/api")
 app.include_router(strategy_routes.router, prefix="/api")
 app.include_router(internal_routes.router, prefix="/api")
+app.include_router(exchange_routes.router, prefix="/api")
+app.include_router(integration_routes.router, prefix="/api")
+app.include_router(watchlist_routes.router, prefix="/api")
 app.include_router(ws_live.router)

@@ -38,6 +38,8 @@ A ValueRef is one of:
   - { stochrsi_k|stochrsi_d: [tf, rsi_len, stoch_len, k_smooth, d_smooth] }
   - { news_sentiment: [minutes] }
   - { news_blackout: [] }
+  - { fear_greed: [] }       -- Crypto Fear & Greed Index, 0..100
+  - { reddit_hype: [] }      -- Reddit community-mention score for ctx.symbol, 0..1
   - { minute_of_hour: [] }
   - { hour_of_day_utc: [] }
 """

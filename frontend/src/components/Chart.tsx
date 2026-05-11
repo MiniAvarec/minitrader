@@ -26,10 +26,12 @@ type KlineRow = {
 };
 
 export default function Chart({
+  exchange,
   symbol,
   height = 380,
   withVolume = true,
 }: {
+  exchange: string;
   symbol: string;
   height?: number;
   withVolume?: boolean;
@@ -42,9 +44,11 @@ export default function Chart({
   const theme = useChartTheme();
 
   const { data } = useQuery<{ klines: KlineRow[] }>({
-    queryKey: ["klines", symbol, tf],
-    queryFn: async () => (await api.get(`/klines/${symbol}/${tf}`)).data,
+    queryKey: ["klines", exchange, symbol, tf],
+    queryFn: async () =>
+      (await api.get(`/klines/${exchange}/${symbol}/${tf}`)).data,
     refetchInterval: 30_000,
+    enabled: Boolean(exchange && symbol),
   });
 
   useEffect(() => {
@@ -149,6 +153,9 @@ export default function Chart({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-baseline gap-3">
           <span className="font-mono text-base font-semibold tracking-wider">
+            <span className="text-muted-foreground mr-1.5 text-[10px] uppercase tracking-wider">
+              {exchange}
+            </span>
             {symbol}
           </span>
           {last && (

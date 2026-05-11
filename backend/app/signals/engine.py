@@ -33,6 +33,8 @@ def evaluate(
     strategy: StrategyDef,
     news: list[dict] | None = None,
     blackout: bool = False,
+    fear_greed: float | None = None,
+    reddit_hype: float | None = None,
     now: datetime | None = None,
 ) -> Signal | None:
     klines = {tf: _df_from_klines(rows) for tf, rows in tf_klines.items()}
@@ -41,6 +43,8 @@ def evaluate(
         klines=klines,
         news=news or [],
         blackout=blackout,
+        fear_greed=fear_greed,
+        reddit_hype=reddit_hype,
         now=now or datetime.now(timezone.utc),
     )
     return evaluate_strategy(strategy, ctx)

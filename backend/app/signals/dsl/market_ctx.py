@@ -21,6 +21,8 @@ class MarketCtx:
     klines: dict[str, pd.DataFrame]  # tf -> OHLCV frame
     news: list[dict] = field(default_factory=list)
     blackout: bool = False
+    fear_greed: float | None = None      # latest Crypto F&G value 0..100
+    reddit_hype: float | None = None     # ctx.symbol's hype score 0..1
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     # if set, all *_value() reads use this index instead of the last bar.
     # Used by the backtester to walk forward.
@@ -177,6 +179,12 @@ class MarketCtx:
             return self._news_sentiment(minutes)
         if name == "news_blackout":
             return bool(self.blackout)
+        if name == "fear_greed":
+            # Neutral default (50) keeps comparisons sensible when the index
+            # isn't available yet, instead of forcing strategies to handle NaN.
+            return float(self.fear_greed) if self.fear_greed is not None else 50.0
+        if name == "reddit_hype":
+            return float(self.reddit_hype) if self.reddit_hype is not None else 0.0
         if name == "minute_of_hour":
             return self.now.minute
         if name == "hour_of_day_utc":

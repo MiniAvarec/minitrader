@@ -14,6 +14,7 @@ export type Me = {
 
 export type SignalRow = {
   id: number;
+  exchange: string;
   symbol: string;
   side: "buy" | "sell";
   confidence: number;
@@ -47,6 +48,7 @@ export type NewsRow = {
 export type OrderRow = {
   id: number;
   signal_id: number | null;
+  exchange: string;
   symbol: string;
   side: "buy" | "sell";
   qty: number;
@@ -92,6 +94,7 @@ export type StrategyDetail = {
 };
 
 export type StrategySelection = {
+  exchange: string;
   symbol: string;
   strategy_id: number;
   enabled: boolean;
@@ -111,6 +114,7 @@ export type BacktestTrade = {
 };
 
 export type BacktestResult = {
+  exchange?: string;
   symbol: string;
   hours: number;
   win_rate: number;
@@ -120,3 +124,101 @@ export type BacktestResult = {
   trades: BacktestTrade[];
   equity_curve: { t: number; equity: number }[];
 };
+
+export type ExchangeInfo = {
+  id: string;
+  label: string;
+  has_key: boolean;
+  testnet: boolean;
+};
+
+export type Instrument = {
+  exchange: string;
+  symbol: string;
+  base: string;
+  quote: string;
+  tick_size: number;
+  lot_size: number;
+  min_qty: number;
+  min_notional: number;
+  ccxt_symbol: string;
+};
+
+export type WatchlistEntry = Instrument & {
+  enabled: boolean;
+};
+
+export async function getExchanges(): Promise<ExchangeInfo[]> {
+  const r = await api.get<ExchangeInfo[]>("/exchanges");
+  return r.data;
+}
+
+export async function searchInstruments(
+  exchange: string,
+  search: string,
+  limit = 50,
+): Promise<Instrument[]> {
+  const r = await api.get<Instrument[]>(`/exchanges/${exchange}/instruments`, {
+    params: { search, limit },
+  });
+  return r.data;
+}
+
+export async function getWatchlist(): Promise<WatchlistEntry[]> {
+  const r = await api.get<WatchlistEntry[]>("/watchlist");
+  return r.data;
+}
+
+export async function addWatchlist(exchange: string, symbol: string): Promise<void> {
+  await api.post("/watchlist", { exchange, symbol });
+}
+
+export async function removeWatchlist(exchange: string, symbol: string): Promise<void> {
+  await api.delete(`/watchlist/${exchange}/${symbol}`);
+}
+
+export type FearGreed = {
+  value: number;
+  classification: string;
+  fetched_at: string;
+};
+
+export async function getFearGreed(): Promise<FearGreed | null> {
+  try {
+    const r = await api.get<FearGreed>("/sentiment/fear-greed");
+    return r.data;
+  } catch {
+    return null;
+  }
+}
+
+export type IntegrationStatus = {
+  slug: string;
+  label: string;
+  description: string;
+  secret: boolean;
+  in_db: boolean;
+  in_env: boolean;
+  updated_at: string | null;
+  value?: string; // present only for non-secret entries
+};
+
+export async function listIntegrations(): Promise<IntegrationStatus[]> {
+  const r = await api.get<IntegrationStatus[]>("/integrations");
+  return r.data;
+}
+
+export async function saveIntegration(slug: string, value: string): Promise<IntegrationStatus> {
+  const r = await api.put<IntegrationStatus>(`/integrations/${slug}`, { value });
+  return r.data;
+}
+
+export async function deleteIntegration(slug: string): Promise<IntegrationStatus> {
+  const r = await api.delete<IntegrationStatus>(`/integrations/${slug}`);
+  return r.data;
+}
+
+export async function testIntegration(slug: string, value: string): Promise<{ ok: boolean; detail: string }> {
+  const r = await api.post<{ ok: boolean; detail: string }>(`/integrations/${slug}/test`, { value });
+  return r.data;
+}

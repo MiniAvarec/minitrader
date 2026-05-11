@@ -34,6 +34,7 @@ async def list_orders(
         {
             "id": r.id,
             "signal_id": r.signal_id,
+            "exchange": r.exchange,
             "symbol": r.symbol,
             "side": r.side.value,
             "qty": r.qty,

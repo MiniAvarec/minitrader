@@ -28,6 +28,7 @@ async def list_signals(
     return [
         {
             "id": r.id,
+            "exchange": r.exchange,
             "symbol": r.symbol,
             "side": r.side.value,
             "confidence": r.confidence,

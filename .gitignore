@@ -10,3 +10,4 @@ dist/
 .ruff_cache/
 *.egg-info/
 backend/alembic/versions/*.pyc
+*.tsbuildinfo
