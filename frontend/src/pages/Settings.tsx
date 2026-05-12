@@ -256,6 +256,11 @@ export default function Settings() {
                   />
                 );
               })}
+              <IBKRKeyCard
+                status={keys.data?.find((k) => k.exchange === "ibkr")}
+                onDelete={() => deleteKey("ibkr")}
+                onSaved={() => qc.invalidateQueries({ queryKey: ["keys"] })}
+              />
             </div>
           </TabsContent>
 
@@ -873,6 +878,134 @@ function ExchangeKeyCard({
             !apiSecret ||
             (exchange.needsPassphrase && !passphrase)
           }
+          className="w-fit"
+        >
+          {busy ? "Testing…" : "Test & save"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function IBKRKeyCard({
+  status,
+  onDelete,
+  onSaved,
+}: {
+  status?: KeyStatus;
+  onDelete: () => void;
+  onSaved: () => void;
+}) {
+  const [host, setHost] = useState("ibgateway");
+  const [clientId, setClientId] = useState("4");
+  const [account, setAccount] = useState("");
+  // Paper/live drives both the IBKR port (4002 vs 4001) and the testnet flag.
+  const [paper, setPaper] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  function onTogglePaper(next: boolean) {
+    if (!next) {
+      const confirmed = window.confirm(
+        "Switch IBKR to LIVE trading? Orders will use real money on port 4001. Cancel to stay on paper (4002).",
+      );
+      if (!confirmed) return;
+    }
+    setPaper(next);
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const body: any = {
+        exchange: "ibkr",
+        api_key: "",
+        api_secret: "",
+        testnet: paper,
+        ibkr: {
+          host,
+          port: paper ? 4002 : 4001,
+          client_id: Number(clientId) || 4,
+          account: account || null,
+        },
+      };
+      const t = await api.post("/keys/test", body);
+      await api.put("/keys", body);
+      toast.success(
+        `Interactive Brokers saved · cash balance ${t.data.usdt_balance.toFixed(2)}`,
+      );
+      onSaved();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const stored = status?.has_key;
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Interactive Brokers</CardTitle>
+          <CardDescription>
+            {stored ? (
+              <>
+                Stored{" "}
+                <Badge variant="muted" className="ml-1 normal-case">
+                  {status?.testnet ? "paper" : "live"}
+                </Badge>
+              </>
+            ) : (
+              "Connects to a running TWS or IB Gateway. Paper port 4002, live 4001."
+            )}
+          </CardDescription>
+        </div>
+        {stored && (
+          <Button variant="outline" size="sm" onClick={onDelete}>
+            Remove
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label>Gateway host</Label>
+          <Input
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            className="font-mono"
+            placeholder="ibgateway"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>Client ID</Label>
+          <Input
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            className="font-mono"
+            placeholder="4"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>Account ID (optional)</Label>
+          <Input
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+            className="font-mono"
+            placeholder="DUxxxxxx (paper) or Uxxxxxxx (live)"
+          />
+        </div>
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">Paper trading</span>
+            <span className="text-xs text-muted-foreground">
+              Selects port 4002 (paper) instead of 4001 (live).
+            </span>
+          </div>
+          <Switch checked={paper} onCheckedChange={onTogglePaper} />
+        </div>
+        <Button
+          onClick={save}
+          disabled={busy || !host || !clientId}
           className="w-fit"
         >
           {busy ? "Testing…" : "Test & save"}

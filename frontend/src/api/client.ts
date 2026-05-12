@@ -413,6 +413,7 @@ export type JournalFilters = {
   min_pnl?: number;
   max_pnl?: number;
   search?: string;
+  currency?: string;
 };
 
 export type JournalQueryParams = JournalFilters & {
@@ -434,6 +435,7 @@ function buildJournalParams(p: JournalQueryParams): URLSearchParams {
   if (p.min_pnl !== undefined) sp.set("min_pnl", String(p.min_pnl));
   if (p.max_pnl !== undefined) sp.set("max_pnl", String(p.max_pnl));
   if (p.search) sp.set("search", p.search);
+  if (p.currency) sp.set("currency", p.currency);
   if (p.sort) sp.set("sort", p.sort);
   if (p.order) sp.set("order", p.order);
   if (p.limit !== undefined) sp.set("limit", String(p.limit));
@@ -463,6 +465,11 @@ export async function getJournalEquityCurve(
 
 export async function getJournalFilterOptions(): Promise<JournalFilterOptions> {
   const r = await api.get<JournalFilterOptions>("/journal/filters");
+  return r.data;
+}
+
+export async function getJournalCurrencies(): Promise<{ currencies: string[] }> {
+  const r = await api.get<{ currencies: string[] }>("/journal/currencies");
   return r.data;
 }
 

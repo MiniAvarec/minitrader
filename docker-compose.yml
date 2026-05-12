@@ -129,6 +129,28 @@ services:
     volumes:
       - ./backend:/code
 
+  # Interactive Brokers TWS / IB Gateway sidecar. Connects to the backend over
+  # ports 4002 (paper) / 4001 (live). First run needs an interactive 2FA seed —
+  # see the README "IBKR setup" section. The image bundles IBC for auto-restart.
+  # Optional: only start with `docker compose up ibgateway` (or include it in
+  # your default `up` if you actively trade on IBKR).
+  ibgateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${IB_USERID:-}
+      TWS_PASSWORD: ${IB_PASSWORD:-}
+      TRADING_MODE: ${IB_TRADING_MODE:-paper}
+      READ_ONLY_API: "no"
+      TWS_ACCEPT_INCOMING: accept
+    ports:
+      - "4002:4002"
+      - "4001:4001"
+    volumes:
+      - ibgateway-settings:/root/Jts
+    profiles:
+      - ibkr
+
   frontend:
     # Stop at the `build` stage (node:20-alpine with deps installed) so the
     # dev server can run. The default final stage is nginx, which has no npm.
@@ -145,3 +167,4 @@ services:
 
 volumes:
   pgdata:
+  ibgateway-settings:

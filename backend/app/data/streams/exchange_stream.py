@@ -11,7 +11,9 @@ and rebuilds the watch tasks if the set has changed.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 from typing import Awaitable, Callable
 
 from app.brokers.base import KlineMsg, to_ccxt_symbol
@@ -44,9 +46,27 @@ class ExchangeStream:
         self._primary_task: asyncio.Task | None = None
         self._standby_task: asyncio.Task | None = None
         self._consumer_task: asyncio.Task | None = None
-        # Two brokers (no keys needed for public klines).
-        self._primary = get_broker(exchange, "", "", testnet=self.testnet)
-        self._standby = get_broker(exchange, "", "", testnet=self.testnet)
+        # IBKR uses an authenticated TWS/IB Gateway connection rather than
+        # public-data feeds. It also rejects duplicate clientIds, so we run
+        # only one broker (no standby) and pin its clientId via env.
+        if exchange == "ibkr":
+            cfg = {
+                "host": os.environ.get("IBKR_HOST", "ibgateway"),
+                "port": int(os.environ.get(
+                    "IBKR_PORT", "4002" if self.testnet else "4001"
+                )),
+                "client_id": int(os.environ.get("IBKR_CLIENT_ID_INGESTOR", "2")),
+                "account": os.environ.get("IBKR_ACCOUNT") or None,
+            }
+            self._primary = get_broker(
+                exchange, "", "", testnet=self.testnet,
+                connection_config=json.dumps(cfg),
+            )
+            self._standby = None
+        else:
+            # Two brokers (no keys needed for public klines).
+            self._primary = get_broker(exchange, "", "", testnet=self.testnet)
+            self._standby = get_broker(exchange, "", "", testnet=self.testnet)
 
     # ----- lifecycle -----
 
@@ -58,9 +78,10 @@ class ExchangeStream:
         for t in (self._primary_task, self._standby_task, self._consumer_task):
             if t is not None:
                 t.cancel()
-        await asyncio.gather(
-            self._primary.close(), self._standby.close(), return_exceptions=True
-        )
+        close_calls = [self._primary.close()]
+        if self._standby is not None:
+            close_calls.append(self._standby.close())
+        await asyncio.gather(*close_calls, return_exceptions=True)
 
     async def update_subscriptions(self, subs: set[Sub]) -> None:
         if subs == self.subs:
@@ -80,7 +101,10 @@ class ExchangeStream:
             return
         subs_list = sorted(self.subs)
         self._primary_task = asyncio.create_task(self._watch(self._primary, subs_list, "primary"))
-        self._standby_task = asyncio.create_task(self._watch(self._standby, subs_list, "standby"))
+        if self._standby is not None:
+            self._standby_task = asyncio.create_task(self._watch(self._standby, subs_list, "standby"))
+        else:
+            self._standby_task = None
 
     async def _seed_history(self, subs: list[Sub]) -> None:
         r = make_redis()

@@ -11,6 +11,7 @@ from sqlalchemy import (
     JSON,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -74,11 +75,14 @@ class ApiKey(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    exchange: Mapped[str] = mapped_column(String(32))  # "binance" | "okx" | "bybit"
+    exchange: Mapped[str] = mapped_column(String(32))  # "binance" | "okx" | "bybit" | "ibkr"
     label: Mapped[str] = mapped_column(String(64), default="default")
     encrypted_key: Mapped[bytes] = mapped_column(LargeBinary)
     encrypted_secret: Mapped[bytes] = mapped_column(LargeBinary)
     encrypted_passphrase: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # JSON-encoded connection details for brokers that don't fit api_key/api_secret
+    # (IBKR: {"host","port","client_id","account"}). NULL for crypto exchanges.
+    connection_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     testnet: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -172,6 +176,9 @@ class Order(Base):
     side: Mapped[SignalSide] = mapped_column(Enum(SignalSide))
     qty: Mapped[float] = mapped_column(Float)
     notional_usdt: Mapped[float] = mapped_column(Float)
+    # Currency the *_usdt columns are denominated in. "USDT" for crypto;
+    # "USD"/"EUR"/etc for IBKR. Column names kept for backwards compatibility.
+    quote_currency: Mapped[str] = mapped_column(String(8), default="USDT")
     entry_price: Mapped[float] = mapped_column(Float)
     sl: Mapped[float | None] = mapped_column(Float, nullable=True)
     tp: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -265,6 +272,8 @@ class Instrument(Base):
     base: Mapped[str] = mapped_column(String(16))
     quote: Mapped[str] = mapped_column(String(16))
     contract_type: Mapped[str] = mapped_column(String(16), default="usdt-perp")
+    # Contract currency. "USDT" for crypto perps; "USD"/"EUR"/etc for IBKR.
+    currency: Mapped[str] = mapped_column(String(8), default="USDT")
     tick_size: Mapped[float] = mapped_column(Float, default=0.0)
     lot_size: Mapped[float] = mapped_column(Float, default=0.0)
     min_qty: Mapped[float] = mapped_column(Float, default=0.0)

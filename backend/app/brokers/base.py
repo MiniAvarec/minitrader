@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Literal, Optional
 
 
-ExchangeId = Literal["binance", "okx", "bybit"]
+ExchangeId = Literal["binance", "okx", "bybit", "ibkr"]
 
 
 @dataclass(slots=True)
@@ -110,6 +110,9 @@ class Broker(ABC):
 
 def to_ccxt_symbol(exchange: str, native: str) -> str:
     """Convert exchange-native symbol to ccxt unified form (futures/swap USDT-margined)."""
+    if exchange == "ibkr":
+        # IBKR has no ccxt analogue; symbols are dot-encoded (e.g. AAPL.SMART.USD).
+        return native
     if exchange == "binance":
         # "BTCUSDT" -> "BTC/USDT:USDT"
         if native.endswith("USDT"):
@@ -131,6 +134,8 @@ def to_ccxt_symbol(exchange: str, native: str) -> str:
 
 def from_ccxt_symbol(exchange: str, ccxt_sym: str) -> str:
     """Inverse of to_ccxt_symbol. Best-effort; relies on the `:QUOTE` suffix for swaps."""
+    if exchange == "ibkr":
+        return ccxt_sym
     if "/" not in ccxt_sym:
         return ccxt_sym
     base_quote, *rest = ccxt_sym.split(":")
@@ -138,3 +143,80 @@ def from_ccxt_symbol(exchange: str, ccxt_sym: str) -> str:
     if exchange == "okx":
         return f"{base}-{quote}-SWAP"
     return f"{base}{quote}"
+
+
+# ----- IBKR symbol encoding -----
+#
+# IBKR contracts need (root, routing-exchange, currency) at minimum, plus
+# expiry / strike / right for derivatives. We pack everything into a single
+# dot-delimited string so it fits the existing String(32) symbol column and
+# travels through the signal/order plumbing unchanged.
+#
+#   STK:  AAPL.SMART.USD
+#   FUT:  ES.CME.USD.202509
+#   CASH: EUR.IDEALPRO.USD            (Forex pair-base; quote inferred from currency)
+#   OPT:  AAPL.SMART.USD.20250620.C.180
+#
+# `decode_ibkr_symbol` returns a dict the IBKR broker layer feeds to
+# ib_insync's Contract factories. Keep this module free of ib_insync imports
+# so the rest of the codebase doesn't pull in the dependency.
+
+_IBKR_CONTRACT_TYPES = {"stock", "future", "forex", "option"}
+
+
+def encode_ibkr_symbol(
+    *,
+    root: str,
+    routing_exchange: str,
+    currency: str,
+    contract_type: str,
+    expiry: str = "",
+    right: str = "",
+    strike: float = 0.0,
+) -> str:
+    if contract_type not in _IBKR_CONTRACT_TYPES:
+        raise ValueError(f"unknown IBKR contract_type: {contract_type}")
+    root = root.upper()
+    routing_exchange = routing_exchange.upper()
+    currency = currency.upper()
+    base = f"{root}.{routing_exchange}.{currency}"
+    if contract_type == "stock" or contract_type == "forex":
+        return base
+    if contract_type == "future":
+        if not expiry:
+            raise ValueError("future requires expiry (YYYYMM or YYYYMMDD)")
+        return f"{base}.{expiry}"
+    # option
+    if not (expiry and right and strike):
+        raise ValueError("option requires expiry, right (C|P) and strike")
+    right = right.upper()
+    if right not in ("C", "P"):
+        raise ValueError("option right must be 'C' or 'P'")
+    return f"{base}.{expiry}.{right}.{strike:g}"
+
+
+def decode_ibkr_symbol(s: str) -> dict:
+    parts = s.split(".")
+    if len(parts) < 3:
+        raise ValueError(f"invalid IBKR symbol: {s!r}")
+    root, routing_exchange, currency = parts[0], parts[1], parts[2]
+    out: dict = {
+        "root": root,
+        "routing_exchange": routing_exchange,
+        "currency": currency,
+    }
+    if len(parts) == 3:
+        # Stock or forex. Caller decides which based on Instrument.contract_type.
+        out["contract_type"] = None  # ambiguous; resolved via Instrument row
+        return out
+    if len(parts) == 4:
+        out["contract_type"] = "future"
+        out["expiry"] = parts[3]
+        return out
+    if len(parts) == 6:
+        out["contract_type"] = "option"
+        out["expiry"] = parts[3]
+        out["right"] = parts[4]
+        out["strike"] = float(parts[5])
+        return out
+    raise ValueError(f"invalid IBKR symbol: {s!r}")

@@ -50,6 +50,7 @@ class DealFilters:
         min_pnl: float | None = Query(None),
         max_pnl: float | None = Query(None),
         search: str | None = Query(None),
+        currency: str | None = Query(None),
     ):
         self.date_from = date_from
         self.date_to = date_to
@@ -62,9 +63,12 @@ class DealFilters:
         self.min_pnl = min_pnl
         self.max_pnl = max_pnl
         self.search = (search or "").strip() or None
+        self.currency = (currency or "").strip().upper() or None
 
     def apply(self, stmt, *, user_id: int):
         stmt = stmt.where(Order.user_id == user_id)
+        if self.currency:
+            stmt = stmt.where(Order.quote_currency == self.currency)
         if self.date_from:
             stmt = stmt.where(Order.created_at >= self.date_from)
         if self.date_to:
@@ -124,6 +128,7 @@ def _row_to_deal(o: Order, strategy_name: str | None) -> dict:
         "tp": o.tp,
         "realized_pnl_usdt": o.realized_pnl_usdt,
         "fee_usdt": o.fee_usdt or 0.0,
+        "quote_currency": o.quote_currency or "USDT",
         "roi_pct": roi_pct,
         "r_multiple": r_multiple,
         "duration_s": duration_s,
@@ -326,6 +331,24 @@ async def journal_stats(
         "by_day_of_week": by_day_of_week,
         "by_hour_of_day": by_hour_of_day,
     }
+
+
+@router.get("/currencies")
+async def list_currencies(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Distinct quote_currencies present in this user's deals, plus 'USDT' fallback."""
+    rows = (
+        await db.execute(
+            select(Order.quote_currency)
+            .where(Order.user_id == user.id)
+            .distinct()
+        )
+    ).all()
+    seen = {(r[0] or "USDT") for r in rows}
+    seen.add("USDT")
+    return {"currencies": sorted(seen)}
 
 
 @router.get("/equity-curve")

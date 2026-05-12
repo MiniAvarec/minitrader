@@ -23,6 +23,7 @@ import {
   evaluateDeal,
   getAISettings,
   getDealEvaluations,
+  getJournalCurrencies,
   getJournalDeals,
   getJournalEquityCurve,
   getJournalFilterOptions,
@@ -170,8 +171,18 @@ export default function Journal() {
   const [sort, setSort] = useState<SortField>("created_at");
   const [order, setOrder] = useState<SortOrder>("desc");
   const [openDeal, setOpenDeal] = useState<DealRow | null>(null);
+  const [currency, setCurrency] = useState<string>("USDT");
 
-  const apiFilters = useMemo(() => toApiFilters(filters), [filters]);
+  const currenciesQ = useQuery<{ currencies: string[] }>({
+    queryKey: ["journal", "currencies"],
+    queryFn: getJournalCurrencies,
+  });
+  const currencies = currenciesQ.data?.currencies ?? ["USDT"];
+
+  const apiFilters = useMemo(
+    () => ({ ...toApiFilters(filters), currency }),
+    [filters, currency],
+  );
 
   const options = useQuery<JournalFilterOptions>({
     queryKey: ["journal", "filter-options"],
@@ -243,6 +254,26 @@ export default function Journal() {
           </Button>
         </div>
       </div>
+
+      {currencies.length > 1 && (
+        <div className="flex items-center gap-1 rounded-md border border-border bg-card p-1 w-fit">
+          {currencies.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCurrency(c)}
+              className={
+                "rounded px-2.5 py-1 text-xs font-mono " +
+                (c === currency
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted/40")
+              }
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
 
       <FilterBar
         filters={filters}

@@ -1,0 +1,44 @@
+# Curated IBKR tradable universe.
+#
+# IBKR has no global exchange-info endpoint — instruments are resolved via
+# reqContractDetails per contract. To keep the system bootable without
+# hitting hundreds of IBKR API calls on first connect, we ship a small
+# default universe here. Users add more via the watchlist UI.
+#
+# Contract types: stock | future | forex | option
+# - stock:  root + routing_exchange (SMART for US listed) + currency
+# - future: root + routing_exchange (CME, NYMEX, COMEX) + currency + expiry (YYYYMM)
+# - forex:  root pair-base + routing_exchange (IDEALPRO) + currency
+# - option: root + routing + currency + expiry (YYYYMMDD) + strike + right (C|P)
+#
+# lot_size / min_qty are *display* sizes; IBKR enforces its own minimums per
+# product. Override per entry if you trade fractional shares (Phase 6).
+
+contracts:
+  # ---- US equities / ETFs ----
+  - { contract_type: stock, root: AAPL,  routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: MSFT,  routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: NVDA,  routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: AMZN,  routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: GOOGL, routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: META,  routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: TSLA,  routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: SPY,   routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: QQQ,   routing_exchange: SMART, currency: USD }
+  - { contract_type: stock, root: IWM,   routing_exchange: SMART, currency: USD }
+
+  # ---- FX (major pairs) ----
+  - { contract_type: forex, root: EUR, routing_exchange: IDEALPRO, currency: USD }
+  - { contract_type: forex, root: GBP, routing_exchange: IDEALPRO, currency: USD }
+  - { contract_type: forex, root: USD, routing_exchange: IDEALPRO, currency: JPY }
+  - { contract_type: forex, root: AUD, routing_exchange: IDEALPRO, currency: USD }
+  - { contract_type: forex, root: USD, routing_exchange: IDEALPRO, currency: CAD }
+  - { contract_type: forex, root: USD, routing_exchange: IDEALPRO, currency: CHF }
+
+  # ---- Futures ----
+  # Note: futures roll quarterly; the `expiry` field is what you'd actively
+  # trade today. Refresh this list when contracts roll.
+  - { contract_type: future, root: ES,  routing_exchange: CME,   currency: USD, expiry: "202509" }  # S&P 500 e-mini
+  - { contract_type: future, root: NQ,  routing_exchange: CME,   currency: USD, expiry: "202509" }  # Nasdaq 100 e-mini
+  - { contract_type: future, root: CL,  routing_exchange: NYMEX, currency: USD, expiry: "202507" }  # WTI crude
+  - { contract_type: future, root: GC,  routing_exchange: COMEX, currency: USD, expiry: "202508" }  # Gold

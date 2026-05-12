@@ -73,6 +73,27 @@ async def check_max_concurrent(open_positions: int, cfg: RiskConfig) -> CheckRes
     return CheckResult("max_concurrent", True, "ok")
 
 
+async def check_market_hours(broker, symbol: str, contract_type: str) -> CheckResult:
+    """Block orders on stock / future / option contracts when the market is closed.
+
+    Forex (and crypto perps via this same code path) trade 24/5 / 24/7 and
+    always pass. Only invoked for IBKR-backed brokers — the function defends
+    against missing `is_market_open` by returning ok.
+    """
+    if contract_type in ("forex", "usdt-perp", "spot"):
+        return CheckResult("market_hours", True, "24h market")
+    is_open = getattr(broker, "is_market_open", None)
+    if is_open is None:
+        return CheckResult("market_hours", True, "broker has no market-hours hook")
+    try:
+        ok = await is_open(symbol)
+    except Exception as e:
+        return CheckResult("market_hours", True, f"check failed: {e}")
+    if ok:
+        return CheckResult("market_hours", True, "ok")
+    return CheckResult("market_hours", False, f"{symbol} market closed")
+
+
 async def evaluate_all(
     db: AsyncSession,
     user: User,

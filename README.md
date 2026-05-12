@@ -189,17 +189,47 @@ docker compose logs -f backend       # дождитесь "alembic upgrade head"
 
 ## Подключение бирж
 
-Поддерживаются три биржи; все ключи строго на бессрочные USDT-перпы (USDT-M Futures / Perpetual Swaps / Linear Perps).
+Поддерживаются четыре площадки: три криптобиржи (USDT-перпы) и **Interactive Brokers** (акции, ETF, фьючерсы, форекс, опционы).
 
-| Биржа | Тип контрактов | Требует passphrase | Тестнет |
+| Площадка | Тип контрактов | Требует passphrase | Тестнет / paper |
 |---|---|---|---|
 | **Binance** | USDT-M Futures | нет | `testnet.binancefuture.com` |
 | **OKX** | Perpetual Swaps | **да** | demo-режим |
 | **Bybit** | Linear Perps | нет | `testnet.bybit.com` |
+| **Interactive Brokers** | stocks / ETF / futures / forex / options | нет (TWS Gateway) | paper account, порт 4002 |
 
-Создайте API-ключ на бирже **только с правом торговли фьючерсами** (без withdrawal!) и впишите его в **Settings → Exchanges**. Кнопка `Test & save` выполнит реальный запрос баланса USDT — если ответ получен, ключ сохранится зашифрованным; при ошибке отобразится сообщение биржи.
+Создайте API-ключ на криптобирже **только с правом торговли фьючерсами** (без withdrawal!) и впишите его в **Settings → Exchanges**. Кнопка `Test & save` выполнит реальный запрос баланса USDT — если ответ получен, ключ сохранится зашифрованным.
 
-Ключи на разных биржах независимы; одна и та же пара (например, `BTCUSDT`) на разных биржах считается двумя разными инструментами и может иметь разные стратегии.
+Ключи на разных площадках независимы; одна и та же пара (например, `BTCUSDT`) на разных биржах считается двумя разными инструментами и может иметь разные стратегии.
+
+### Interactive Brokers (IBKR)
+
+IBKR подключается через локальный **TWS** или **IB Gateway**, который компоузит `docker-compose.yml` как опциональный сервис `ibgateway` (профиль `ibkr`).
+
+1. Проставьте в `.env`:
+   ```bash
+   IB_USERID=<ваш логин IBKR>
+   IB_PASSWORD=<пароль>
+   IB_TRADING_MODE=paper           # или live
+   IBKR_CLIENT_ID_REST=4
+   IBKR_CLIENT_ID_INGESTOR=2
+   IBKR_CLIENT_ID_EXECUTOR=1
+   IBKR_CLIENT_ID_FILLSTREAM=3
+   ```
+2. Запустите сервис gateway:
+   ```bash
+   docker compose --profile ibkr up -d ibgateway
+   ```
+   Первый запуск потребует ввести 2FA-код в TWS (один раз — IBC сохраняет сессию в `ibgateway-settings`).
+3. В **Settings → Exchanges → Interactive Brokers** оставьте `Gateway host = ibgateway`, выберите Client ID `4`, тумблер «Paper trading» (порт 4002 vs 4001), нажмите `Test & save`. UI покажет cash-баланс.
+4. Добавьте пары на вкладке **Pairs**. Курируемая «вселенная» (US-акции, ETF, мажорные FX, ES/NQ/CL/GC фьючерсы) лежит в `backend/app/brokers/ibkr_universe.yaml`. Для произвольного контракта используйте поле «Add manually» с символом вида `NFLX.SMART.USD`, `ES.CME.USD.202509`, `EUR.IDEALPRO.USD`, `AAPL.SMART.USD.20250620.C.180`.
+
+Особенности:
+- IBKR rate-limit: 50 запросов/сек; один gateway не позволяет несколько подключений с одним `clientId`, поэтому **executor / ingestor / fillstream / REST** должны использовать разные ID (см. `.env`).
+- Данные котировок IBKR платные: без подписки api возвращает 15-минутно задержанные тики (`IBKR_MARKET_DATA_TYPE=3` по умолчанию).
+- Рынок акций / фьючерсов **закрыт** вне торговых часов; авто-исполнение в эти окна блокируется риск-чеком `market_hours`. Форекс работает 24/5 и проходит чек безусловно.
+- PnL в журнале сохраняется в валюте контракта (`quote_currency` колонка `orders`). Журнал показывает отдельные вкладки по валютам; конверсия в одну валюту в v1 не делается.
+- Bracket-ордер с SL / TP формируется автоматически (parent market + child stop + child limit, transmit=true только у последнего child).
 
 ---
 

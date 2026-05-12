@@ -34,7 +34,7 @@ from app.db.models import (
 )
 from app.db.session import SessionLocal
 from app.orders.rounding import round_qty, round_price
-from app.risk.checks import evaluate_all
+from app.risk.checks import check_market_hours, evaluate_all
 
 log = logging.getLogger("executor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -107,6 +107,16 @@ async def place_market_order(
             )
         ).scalar_one_or_none()
         ccxt_sym = instrument.ccxt_symbol if instrument else to_ccxt_symbol(exchange, symbol)
+        # IBKR has no ccxt analogue — pass the native dot-encoded symbol through.
+        if exchange == "ibkr":
+            ccxt_sym = symbol
+            mh = await check_market_hours(
+                broker,
+                symbol,
+                instrument.contract_type if instrument else "stock",
+            )
+            if not mh.ok:
+                return False, f"risk: {mh.name}: {mh.reason}", None
         mark = await broker.mark_price(ccxt_sym)
         if mark <= 0:
             return False, "could not fetch mark price", None
@@ -132,6 +142,7 @@ async def place_market_order(
             side=SignalSide.buy if side_norm == "buy" else SignalSide.sell,
             qty=qty,
             notional_usdt=notional,
+            quote_currency=(instrument.currency if instrument else "USDT"),
             entry_price=mark,
             sl=sl_price,
             tp=tp_price,

@@ -15,6 +15,7 @@ async def upsert_key(
     label: str = "default",
     testnet: bool = True,
     passphrase: str | None = None,
+    connection_config: str | None = None,
 ) -> ApiKey:
     existing = (
         await db.execute(
@@ -33,6 +34,7 @@ async def upsert_key(
         existing.encrypted_secret = enc_secret
         existing.encrypted_passphrase = enc_pass
         existing.testnet = testnet
+        existing.connection_config = connection_config
         await db.commit()
         await db.refresh(existing)
         return existing
@@ -44,6 +46,7 @@ async def upsert_key(
         encrypted_secret=enc_secret,
         encrypted_passphrase=enc_pass,
         testnet=testnet,
+        connection_config=connection_config,
     )
     db.add(row)
     await db.commit()
@@ -53,8 +56,8 @@ async def upsert_key(
 
 async def load_key(
     db: AsyncSession, user_id: int, exchange: str, label: str = "default"
-) -> tuple[str, str, bool, str | None] | None:
-    """Return (api_key, api_secret, testnet, passphrase | None) or None."""
+) -> tuple[str, str, bool, str | None, str | None] | None:
+    """Return (api_key, api_secret, testnet, passphrase | None, connection_config | None) or None."""
     row = (
         await db.execute(
             select(ApiKey).where(
@@ -74,6 +77,7 @@ async def load_key(
         decrypt(row.encrypted_secret),
         row.testnet,
         passphrase,
+        row.connection_config,
     )
 
 
