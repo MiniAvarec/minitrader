@@ -21,6 +21,7 @@ from app.db.models import (
     UserWatchlistEntry,
 )
 from app.db.session import get_db
+from app.db.symbols import canonical_symbol
 from app.signals.dsl.loader import StrategyParseError, load_yaml_text
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
@@ -158,7 +159,7 @@ async def upsert_selection(
     exchange = body.exchange.lower()
     if exchange not in SUPPORTED:
         raise HTTPException(400, f"unknown exchange {exchange!r}")
-    sym = body.symbol.upper()
+    sym = await canonical_symbol(db, exchange, body.symbol)
     in_watchlist = (
         await db.execute(
             select(UserWatchlistEntry).where(
@@ -204,12 +205,14 @@ async def delete_selection(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    ex = exchange.lower()
+    sym = await canonical_symbol(db, ex, symbol)
     sel = (
         await db.execute(
             select(UserStrategySelection)
             .where(UserStrategySelection.user_id == user.id)
-            .where(UserStrategySelection.exchange == exchange.lower())
-            .where(UserStrategySelection.symbol == symbol.upper())
+            .where(UserStrategySelection.exchange == ex)
+            .where(UserStrategySelection.symbol == sym)
         )
     ).scalar_one_or_none()
     if sel is not None:
@@ -378,7 +381,7 @@ async def backtest_strategy(
     exchange = body.exchange.lower()
     if exchange not in SUPPORTED:
         raise HTTPException(400, f"unknown exchange {exchange!r}")
-    sym = body.symbol.upper()
+    sym = await canonical_symbol(db, exchange, body.symbol)
     instrument = (
         await db.execute(
             select(Instrument).where(
@@ -431,7 +434,7 @@ async def optimize_strategy(
     exchange = body.exchange.lower()
     if exchange not in SUPPORTED:
         raise HTTPException(400, f"unknown exchange {exchange!r}")
-    sym = body.symbol.upper()
+    sym = await canonical_symbol(db, exchange, body.symbol)
     instrument = (
         await db.execute(
             select(Instrument).where(

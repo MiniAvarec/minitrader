@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import current_user
@@ -28,12 +28,19 @@ class RouteIn(BaseModel):
 
 
 async def _instrument_for(db: AsyncSession, exchange: str, symbol: str) -> Instrument | None:
-    sym = symbol.upper()
+    # Case-insensitive: MT5/Exness symbols carry a lowercase suffix (BTCUSDm).
     exact = (
-        await db.execute(select(Instrument).where(Instrument.exchange == exchange, Instrument.symbol == sym))
+        await db.execute(
+            select(Instrument).where(
+                Instrument.exchange == exchange,
+                func.upper(Instrument.symbol) == symbol.upper(),
+            )
+        )
     ).scalar_one_or_none()
     if exact:
         return exact
+    # USDT base/quote fallback is crypto-only; harmless for Exness.
+    sym = symbol.upper()
     base = sym[:-4] if sym.endswith("USDT") else sym.split("-")[0]
     return (
         await db.execute(
