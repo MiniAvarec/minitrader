@@ -22,6 +22,8 @@ from app.brokers.base import (
     FillEvent,
     InstrumentInfo,
     KlineMsg,
+    _RolloverState,
+    ohlcv_to_klines,
     to_ccxt_symbol,
 )
 
@@ -209,25 +211,22 @@ class OKXBroker(Broker):
 
         async def _watch(native: str, tf: str) -> None:
             ccxt_sym = to_ccxt_symbol("okx", native)
+            state = _RolloverState()
             while True:
                 try:
                     bars = await self._pro_client.watch_ohlcv(ccxt_sym, tf)
                     for b in bars or []:
-                        await queue.put(
-                            KlineMsg(
-                                exchange="okx",
-                                symbol=native,
-                                tf=tf,
-                                open_time=int(b[0]),
-                                close_time=int(b[0]) + _tf_ms(tf) - 1,
-                                open=float(b[1]),
-                                high=float(b[2]),
-                                low=float(b[3]),
-                                close=float(b[4]),
-                                volume=float(b[5]),
-                                closed=False,
-                            )
-                        )
+                        # See ohlcv_to_klines: emits a one-shot closed=True bar
+                        # at each rollover (ccxt.pro never flags settlement).
+                        for m in ohlcv_to_klines(
+                            state,
+                            exchange="okx",
+                            symbol=native,
+                            tf=tf,
+                            bar=b,
+                            tf_ms=_tf_ms(tf),
+                        ):
+                            await queue.put(m)
                 except Exception as e:
                     log.warning("OKX watch_ohlcv %s %s error: %s", native, tf, e)
                     await asyncio.sleep(1)
