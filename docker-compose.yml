@@ -151,6 +151,29 @@ services:
     profiles:
       - ibkr
 
+  # Exness MT5 gateway sidecar. Runs the MetaTrader 5 terminal under Wine plus
+  # the mt5linux RPyC server on :18812. Exness has no REST API, so this is the
+  # only integration path (analogous to ibgateway). EXNESS_* seed a default
+  # session for the credential-less public path (instruments refresh); keyed
+  # users log in per-key from the backend. First run may need an interactive
+  # 2FA/login — see the README "Exness / MT5 setup" section.
+  # Optional: only start with `docker compose --profile exness up mt5gateway`.
+  mt5gateway:
+    build:
+      context: ./mt5gateway
+    restart: unless-stopped
+    environment:
+      EXNESS_LOGIN: ${EXNESS_LOGIN:-}
+      EXNESS_PASSWORD: ${EXNESS_PASSWORD:-}
+      EXNESS_SERVER: ${EXNESS_SERVER:-}
+      MT5_BRIDGE_PORT: "18812"
+    ports:
+      - "18812:18812"
+    volumes:
+      - mt5gateway-data:/root/.wine
+    profiles:
+      - exness
+
   frontend:
     # Stop at the `build` stage (node:20-alpine with deps installed) so the
     # dev server can run. The default final stage is nginx, which has no npm.
@@ -168,3 +191,4 @@ services:
 volumes:
   pgdata:
   ibgateway-settings:
+  mt5gateway-data:

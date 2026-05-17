@@ -1,0 +1,44 @@
+# Curated Exness (MetaTrader 5) tradable universe.
+#
+# Exness has no global exchange-info endpoint — instruments are resolved via
+# MT5 symbol_info() per symbol. We ship a small default list (FX majors/minors,
+# metals, crypto CFDs) so the system boots without enumerating the account's
+# full symbol tree. The Exness broker reconciles each `symbol` against the
+# live terminal, transparently handling per-account suffixes (e.g. the symbol
+# `EURUSD` may resolve to `EURUSDm` on a Standard-Cent account).
+#
+# Fields:
+#   symbol         MT5 symbol root (suffix auto-resolved at refresh time)
+#   base / quote   informational; quote is also taken from MT5 currency_profit
+#   contract_type  forex | cfd   (drives display only; sizing uses contract_size
+#                  read live from MT5 symbol_info.trade_contract_size)
+#   min_notional   optional floor in quote currency (0 = broker default)
+
+symbols:
+  # ---- FX majors ----
+  - { symbol: EURUSD, base: EUR, quote: USD, contract_type: forex }
+  - { symbol: GBPUSD, base: GBP, quote: USD, contract_type: forex }
+  - { symbol: USDJPY, base: USD, quote: JPY, contract_type: forex }
+  - { symbol: USDCHF, base: USD, quote: CHF, contract_type: forex }
+  - { symbol: AUDUSD, base: AUD, quote: USD, contract_type: forex }
+  - { symbol: USDCAD, base: USD, quote: CAD, contract_type: forex }
+  - { symbol: NZDUSD, base: NZD, quote: USD, contract_type: forex }
+
+  # ---- FX minors / crosses ----
+  - { symbol: EURGBP, base: EUR, quote: GBP, contract_type: forex }
+  - { symbol: EURJPY, base: EUR, quote: JPY, contract_type: forex }
+  - { symbol: GBPJPY, base: GBP, quote: JPY, contract_type: forex }
+  - { symbol: EURCHF, base: EUR, quote: CHF, contract_type: forex }
+  - { symbol: AUDJPY, base: AUD, quote: JPY, contract_type: forex }
+  - { symbol: EURAUD, base: EUR, quote: AUD, contract_type: forex }
+  - { symbol: GBPAUD, base: GBP, quote: AUD, contract_type: forex }
+
+  # ---- Metals ----
+  - { symbol: XAUUSD, base: XAU, quote: USD, contract_type: cfd }
+  - { symbol: XAGUSD, base: XAG, quote: USD, contract_type: cfd }
+
+  # ---- Crypto CFDs ----
+  - { symbol: BTCUSD, base: BTC, quote: USD, contract_type: cfd }
+  - { symbol: ETHUSD, base: ETH, quote: USD, contract_type: cfd }
+  - { symbol: XRPUSD, base: XRP, quote: USD, contract_type: cfd }
+  - { symbol: LTCUSD, base: LTC, quote: USD, contract_type: cfd }

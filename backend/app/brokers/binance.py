@@ -27,6 +27,8 @@ from app.brokers.base import (
     FillEvent,
     InstrumentInfo,
     KlineMsg,
+    _RolloverState,
+    ohlcv_to_klines,
 )
 
 
@@ -281,30 +283,26 @@ class BinanceBroker(Broker):
 
         async def _watch(native: str, tf: str) -> None:
             ccxt_sym = to_ccxt_symbol("binance", native)
+            state = _RolloverState()
             while True:
                 try:
                     bars = await self._pro_client.watch_ohlcv(ccxt_sym, tf)
                     if not bars:
                         continue
                     for b in bars:
-                        # ccxt.pro yields the in-progress bar each tick; mark `closed=False`
-                        # except for the most recent settled bar (the dedupe layer handles
-                        # the rest).
-                        await queue.put(
-                            KlineMsg(
-                                exchange="binance",
-                                symbol=native,
-                                tf=tf,
-                                open_time=int(b[0]),
-                                close_time=int(b[0]) + _tf_ms(tf) - 1,
-                                open=float(b[1]),
-                                high=float(b[2]),
-                                low=float(b[3]),
-                                close=float(b[4]),
-                                volume=float(b[5]),
-                                closed=False,
-                            )
-                        )
+                        # ccxt.pro re-emits the in-progress bar each tick and
+                        # never flags settlement; the helper emits a one-shot
+                        # closed=True bar at each rollover so the signals
+                        # worker actually evaluates.
+                        for m in ohlcv_to_klines(
+                            state,
+                            exchange="binance",
+                            symbol=native,
+                            tf=tf,
+                            bar=b,
+                            tf_ms=_tf_ms(tf),
+                        ):
+                            await queue.put(m)
                 except Exception as e:
                     log.warning("watch_ohlcv %s %s error: %s", native, tf, e)
                     await asyncio.sleep(1)

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Literal, Optional
 
 
-ExchangeId = Literal["binance", "okx", "bybit", "ibkr"]
+ExchangeId = Literal["binance", "okx", "bybit", "ibkr", "exness"]
 
 
 @dataclass(slots=True)
@@ -26,6 +26,11 @@ class InstrumentInfo:
     min_notional: float
     ccxt_symbol: str       # "BTC/USDT:USDT"
     active: bool = True
+    # Units of `base` per 1.0 of `lot_size`. Crypto venues quote size directly
+    # in base units (contract_size == 1.0). MT5/Exness trades in *lots* where a
+    # standard FX lot is 100_000 units, metals/CFDs vary — the Exness broker
+    # uses this to convert the executor's base-unit qty to MT5 lots.
+    contract_size: float = 1.0
 
 
 @dataclass(slots=True)
@@ -54,6 +59,82 @@ class KlineMsg:
     close: float
     volume: float
     closed: bool
+
+
+class _RolloverState:
+    """Per-(symbol, tf) cursor for turning ccxt.pro's repeated in-progress bar
+    into exactly one settled (`closed=True`) bar at each rollover."""
+
+    __slots__ = ("last_open", "snap")
+
+    def __init__(self) -> None:
+        self.last_open: int | None = None
+        self.snap: tuple[float, float, float, float, float] | None = None
+
+
+def ohlcv_to_klines(
+    state: _RolloverState,
+    *,
+    exchange: str,
+    symbol: str,
+    tf: str,
+    bar: list,
+    tf_ms: int,
+) -> list[KlineMsg]:
+    """Map one ccxt.pro `watch_ohlcv` row to KlineMsgs.
+
+    ccxt.pro re-emits the in-progress candle every tick and never flags the
+    moment it settles. We track the last open_time per stream: when a strictly
+    newer open_time arrives, the previous candle is finalized — emit it once
+    with `closed=True` (using its last seen OHLCV), then the new in-progress
+    candle with `closed=False`. Without this no `kline_closed` is ever
+    published and the signals worker never evaluates.
+    """
+    ot = int(bar[0])
+    o, h, l, c, v = (
+        float(bar[1]),
+        float(bar[2]),
+        float(bar[3]),
+        float(bar[4]),
+        float(bar[5]),
+    )
+    out: list[KlineMsg] = []
+    if state.last_open is not None and ot > state.last_open and state.snap:
+        po, ph, pl, pc, pv = state.snap
+        out.append(
+            KlineMsg(
+                exchange=exchange,
+                symbol=symbol,
+                tf=tf,
+                open_time=state.last_open,
+                close_time=state.last_open + tf_ms - 1,
+                open=po,
+                high=ph,
+                low=pl,
+                close=pc,
+                volume=pv,
+                closed=True,
+            )
+        )
+    out.append(
+        KlineMsg(
+            exchange=exchange,
+            symbol=symbol,
+            tf=tf,
+            open_time=ot,
+            close_time=ot + tf_ms - 1,
+            open=o,
+            high=h,
+            low=l,
+            close=c,
+            volume=v,
+            closed=False,
+        )
+    )
+    if state.last_open is None or ot >= state.last_open:
+        state.last_open = ot
+        state.snap = (o, h, l, c, v)
+    return out
 
 
 class Broker(ABC):
@@ -113,6 +194,10 @@ def to_ccxt_symbol(exchange: str, native: str) -> str:
     if exchange == "ibkr":
         # IBKR has no ccxt analogue; symbols are dot-encoded (e.g. AAPL.SMART.USD).
         return native
+    if exchange == "exness":
+        # Exness/MT5 symbols (EURUSD, XAUUSD, BTCUSD, sometimes suffixed like
+        # EURUSDm) have no ccxt analogue; pass through unchanged.
+        return native
     if exchange == "binance":
         # "BTCUSDT" -> "BTC/USDT:USDT"
         if native.endswith("USDT"):
@@ -134,7 +219,7 @@ def to_ccxt_symbol(exchange: str, native: str) -> str:
 
 def from_ccxt_symbol(exchange: str, ccxt_sym: str) -> str:
     """Inverse of to_ccxt_symbol. Best-effort; relies on the `:QUOTE` suffix for swaps."""
-    if exchange == "ibkr":
+    if exchange in ("ibkr", "exness"):
         return ccxt_sym
     if "/" not in ccxt_sym:
         return ccxt_sym

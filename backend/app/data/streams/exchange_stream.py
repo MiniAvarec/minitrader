@@ -154,6 +154,21 @@ class ExchangeStream:
         last_seen = self.dedupe.last_open.get((msg.exchange, msg.symbol, msg.tf))
         norm = _to_dict(msg)
 
+        # A settled bar (emitted once at rollover). Its open_time was already
+        # pushed as the in-progress tail, so finalize that stored bar in place
+        # (or push it if somehow unseen) and ALWAYS notify the signals worker —
+        # this is the only event that drives strategy evaluation.
+        if msg.closed:
+            if last_seen == msg.open_time:
+                await replace_last_kline(r, msg.exchange, msg.symbol, msg.tf, norm)
+            else:
+                if verdict == "gap":
+                    await self._backfill_gap(r, msg)
+                await push_kline(r, msg.exchange, msg.symbol, msg.tf, norm)
+                self.dedupe.record(msg.exchange, msg.symbol, msg.tf, msg.open_time)
+            await r.publish(SIGNAL_CHANNEL, _kline_closed_payload(msg))
+            return
+
         if verdict == "duplicate" and last_seen == msg.open_time:
             # In-progress update of the same bar — refresh tail.
             await replace_last_kline(r, msg.exchange, msg.symbol, msg.tf, norm)
@@ -166,13 +181,6 @@ class ExchangeStream:
 
         await push_kline(r, msg.exchange, msg.symbol, msg.tf, norm)
         self.dedupe.record(msg.exchange, msg.symbol, msg.tf, msg.open_time)
-
-        # Notify downstream consumers (signals worker) once the bar is settled.
-        if msg.closed:
-            await r.publish(
-                SIGNAL_CHANNEL,
-                _kline_closed_payload(msg),
-            )
 
     async def _backfill_gap(self, r, msg: KlineMsg) -> None:
         prev_open = self.dedupe.last_open.get((msg.exchange, msg.symbol, msg.tf))

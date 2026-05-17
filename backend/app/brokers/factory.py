@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.brokers.base import Broker
 from app.brokers.binance import BinanceBroker
 from app.brokers.bybit import BybitBroker
+from app.brokers.exness import ExnessBroker
 from app.brokers.ibkr import IBKRBroker
 from app.brokers.okx import OKXBroker
 from app.keys.store import load_key
@@ -31,6 +32,7 @@ SUPPORTED: dict[str, Type[Broker]] = {
     "okx": OKXBroker,
     "bybit": BybitBroker,
     "ibkr": IBKRBroker,
+    "exness": ExnessBroker,
 }
 
 
@@ -90,6 +92,31 @@ def get_broker(
             port=port,
             client_id=client_id,
             account=account,
+            testnet=testnet,
+        )
+    if exchange == "exness":
+        cfg = json.loads(connection_config or "{}")
+        server = cfg.get("server") or os.environ.get("EXNESS_SERVER", "")
+        bridge_host = cfg.get("bridge_host") or os.environ.get(
+            "MT5_BRIDGE_HOST", "mt5gateway"
+        )
+        bridge_port = int(
+            cfg.get("bridge_port") or os.environ.get("MT5_BRIDGE_PORT", "18812")
+        )
+        # api_key -> MT5 login number, api_secret -> password. Empty on the
+        # public path (instruments_refresh) — the gateway terminal already
+        # holds the session, so we just attach.
+        login = 0
+        try:
+            login = int(api_key) if api_key else 0
+        except ValueError:
+            login = 0
+        return ExnessBroker(
+            login,
+            api_secret,
+            server,
+            bridge_host=bridge_host,
+            bridge_port=bridge_port,
             testnet=testnet,
         )
     return cls(api_key, api_secret, testnet=testnet)
