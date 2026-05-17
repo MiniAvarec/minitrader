@@ -66,6 +66,10 @@ services:
     restart: unless-stopped
 
   frontend:
+    # Override the dev `target: build` (node) with the nginx runtime stage.
+    build:
+      context: ./frontend
+      target: runtime
     ports:
       - "80:80"
     command: ["nginx", "-g", "daemon off;"]
