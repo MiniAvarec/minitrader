@@ -163,21 +163,36 @@ class ExnessBroker(Broker):
         """
         if symbol in self._symbol_cache:
             return self._symbol_cache[symbol]
-        info = await self._call("symbol_info", symbol)
         name = symbol
+        info = await self._call("symbol_info", symbol)
         if info is None:
+            # Crypto CFDs aren't in MT5's default Market Watch, so symbol_info
+            # returns None even though the exact name is valid. Selecting it
+            # adds it to Market Watch; retry. This avoids the heavy 350-symbol
+            # symbols_get() scan, which is unreliable under contention on the
+            # single shared MT5 bridge.
+            selected = await self._call("symbol_select", symbol, True)
+            if selected:
+                info = await self._call("symbol_info", symbol)
+        if info is None:
+            # Last resort: scan for a per-account suffix variant
+            # (EURUSD -> EURUSDm). Case-insensitive.
             allsyms = await self._call("symbols_get") or []
             cand = None
+            want = symbol.upper()
             for s in allsyms:
                 sn = str(getattr(s, "name", ""))
-                if sn == symbol or sn.startswith(symbol):
+                up = sn.upper()
+                if up == want or up.startswith(want):
                     cand = sn
-                    if sn == symbol:
+                    if up == want:
                         break
             if cand is None:
                 raise RuntimeError(f"exness symbol not found: {symbol}")
             name = cand
-        await self._call("symbol_select", name, True)
+            await self._call("symbol_select", name, True)
+        else:
+            await self._call("symbol_select", name, True)
         self._symbol_cache[symbol] = name
         return name
 
