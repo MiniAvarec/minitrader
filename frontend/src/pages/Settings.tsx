@@ -261,6 +261,11 @@ export default function Settings() {
                 onDelete={() => deleteKey("ibkr")}
                 onSaved={() => qc.invalidateQueries({ queryKey: ["keys"] })}
               />
+              <ExnessKeyCard
+                status={keys.data?.find((k) => k.exchange === "exness")}
+                onDelete={() => deleteKey("exness")}
+                onSaved={() => qc.invalidateQueries({ queryKey: ["keys"] })}
+              />
             </div>
           </TabsContent>
 
@@ -1006,6 +1011,136 @@ function IBKRKeyCard({
         <Button
           onClick={save}
           disabled={busy || !host || !clientId}
+          className="w-fit"
+        >
+          {busy ? "Testing…" : "Test & save"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExnessKeyCard({
+  status,
+  onDelete,
+  onSaved,
+}: {
+  status?: KeyStatus;
+  onDelete: () => void;
+  onSaved: () => void;
+}) {
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [server, setServer] = useState("");
+  // Demo (Exness-MT5TrialN) vs live (Exness-MT5RealN). Drives the testnet flag.
+  const [demo, setDemo] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  function onToggleDemo(next: boolean) {
+    if (!next) {
+      const confirmed = window.confirm(
+        "Switch Exness to a LIVE MT5 server? Orders will use real money. " +
+          "Make sure the server name is your Exness-MT5RealN server. " +
+          "Cancel to keep using a demo (Trial) server.",
+      );
+      if (!confirmed) return;
+    }
+    setDemo(next);
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      const body: any = {
+        exchange: "exness",
+        api_key: login,
+        api_secret: password,
+        testnet: demo,
+        exness: {
+          server,
+          bridge_host: "mt5gateway",
+          bridge_port: 18812,
+        },
+      };
+      const t = await api.post("/keys/test", body);
+      await api.put("/keys", body);
+      toast.success(
+        `Exness saved · equity ${t.data.usdt_balance.toFixed(2)} (account ccy)`,
+      );
+      onSaved();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const stored = status?.has_key;
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Exness (MetaTrader 5)</CardTitle>
+          <CardDescription>
+            {stored ? (
+              <>
+                Stored{" "}
+                <Badge variant="muted" className="ml-1 normal-case">
+                  {status?.testnet ? "demo" : "live"}
+                </Badge>
+              </>
+            ) : (
+              "Trades via the MT5 gateway sidecar (no REST API). The server name selects demo vs live."
+            )}
+          </CardDescription>
+        </div>
+        {stored && (
+          <Button variant="outline" size="sm" onClick={onDelete}>
+            Remove
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Label>MT5 login</Label>
+          <Input
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+            className="font-mono"
+            placeholder="12345678"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>MT5 password</Label>
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="font-mono"
+            placeholder="trading password (not investor)"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>MT5 server</Label>
+          <Input
+            value={server}
+            onChange={(e) => setServer(e.target.value)}
+            className="font-mono"
+            placeholder="Exness-MT5Trial14 / Exness-MT5Real8"
+          />
+        </div>
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">Demo account</span>
+            <span className="text-xs text-muted-foreground">
+              Off = live MT5 server (real money).
+            </span>
+          </div>
+          <Switch checked={demo} onCheckedChange={onToggleDemo} />
+        </div>
+        <Button
+          onClick={save}
+          disabled={busy || !login || !password || !server}
           className="w-fit"
         >
           {busy ? "Testing…" : "Test & save"}

@@ -15,7 +15,7 @@ from app.keys.store import delete_key, load_key, upsert_key
 router = APIRouter(prefix="/keys", tags=["keys"])
 
 
-ExchangeLit = Literal["binance", "okx", "bybit", "ibkr"]
+ExchangeLit = Literal["binance", "okx", "bybit", "ibkr", "exness"]
 
 
 class IBKRConfig(BaseModel):
@@ -25,9 +25,16 @@ class IBKRConfig(BaseModel):
     account: str | None = None
 
 
+class ExnessConfig(BaseModel):
+    # MT5 server name decides demo vs live (Exness-MT5TrialN / Exness-MT5RealN).
+    server: str = ""
+    bridge_host: str = "mt5gateway"
+    bridge_port: int = 18812
+
+
 class KeyIn(BaseModel):
     exchange: ExchangeLit = "binance"
-    # Crypto exchanges only — empty strings for IBKR.
+    # Crypto exchanges only — empty strings for IBKR/Exness.
     api_key: str = ""
     api_secret: str = ""
     passphrase: str | None = None
@@ -35,6 +42,9 @@ class KeyIn(BaseModel):
     label: str = "default"
     # IBKR only — host/port/client_id/account. Ignored by other exchanges.
     ibkr: IBKRConfig | None = None
+    # Exness only — MT5 server + bridge address. api_key=MT5 login number,
+    # api_secret=MT5 password.
+    exness: ExnessConfig | None = None
 
 
 class KeyStatus(BaseModel):
@@ -54,22 +64,37 @@ def _validate(body: KeyIn) -> None:
             raise HTTPException(400, "IBKR requires host/port/client_id")
         if not body.ibkr.host or not body.ibkr.port or not body.ibkr.client_id:
             raise HTTPException(400, "IBKR host/port/client_id must be set")
+    elif body.exchange == "exness":
+        if body.exness is None or not body.exness.server:
+            raise HTTPException(400, "Exness requires an MT5 server name")
+        if not body.api_key or not body.api_secret:
+            raise HTTPException(
+                400, "Exness requires MT5 login (api_key) and password (api_secret)"
+            )
     else:
         if not body.api_key or not body.api_secret:
             raise HTTPException(400, f"{body.exchange} requires api_key and api_secret")
 
 
-def _ibkr_config_json(body: KeyIn) -> str | None:
-    if body.exchange != "ibkr" or body.ibkr is None:
-        return None
-    return json.dumps(
-        {
-            "host": body.ibkr.host,
-            "port": int(body.ibkr.port),
-            "client_id": int(body.ibkr.client_id),
-            "account": body.ibkr.account or None,
-        }
-    )
+def _connection_config_json(body: KeyIn) -> str | None:
+    if body.exchange == "ibkr" and body.ibkr is not None:
+        return json.dumps(
+            {
+                "host": body.ibkr.host,
+                "port": int(body.ibkr.port),
+                "client_id": int(body.ibkr.client_id),
+                "account": body.ibkr.account or None,
+            }
+        )
+    if body.exchange == "exness" and body.exness is not None:
+        return json.dumps(
+            {
+                "server": body.exness.server,
+                "bridge_host": body.exness.bridge_host,
+                "bridge_port": int(body.exness.bridge_port),
+            }
+        )
+    return None
 
 
 async def _publish_keys_changed(user_id: int, exchange: str, present: bool) -> None:
@@ -99,7 +124,7 @@ async def put_key(
         label=body.label,
         testnet=body.testnet,
         passphrase=body.passphrase,
-        connection_config=_ibkr_config_json(body),
+        connection_config=_connection_config_json(body),
     )
     invalidate_user_creds(user.id, body.exchange)
     await _publish_keys_changed(user.id, body.exchange, present=True)
@@ -146,7 +171,7 @@ async def test_key(
         body.api_secret,
         testnet=body.testnet,
         passphrase=body.passphrase,
-        connection_config=_ibkr_config_json(body),
+        connection_config=_connection_config_json(body),
     )
     try:
         balance = await broker.usdt_balance()

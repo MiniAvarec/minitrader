@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     BINANCE_USE_TESTNET: bool = True
     OKX_USE_TESTNET: bool = True
     BYBIT_USE_TESTNET: bool = True
+    # Exness has no demo/live *flag* — it's the server name. This only drives
+    # the UI "demo/live" label and the testnet default; the real switch is the
+    # EXNESS_SERVER / per-key server value (Exness-MT5TrialN vs Exness-MT5RealN).
+    EXNESS_USE_TESTNET: bool = True
 
     # Timeframes the ingestor subscribes to by default. Per-user strategies can
     # use any subset of these.
@@ -52,6 +56,7 @@ class Settings(BaseSettings):
             "binance": self.BINANCE_USE_TESTNET,
             "okx": self.OKX_USE_TESTNET,
             "bybit": self.BYBIT_USE_TESTNET,
+            "exness": self.EXNESS_USE_TESTNET,
         }.get(exchange, True)
 
 

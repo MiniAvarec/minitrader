@@ -31,6 +31,13 @@ dependencies = [
     "slowapi>=0.1.9",
     "cachetools>=5.3",
     "ib_insync>=0.9.86",
+    # Exness/MT5: pure-Python RPyC transport for the mt5linux client. The
+    # `mt5linux` client itself is installed --no-deps in the Dockerfile so it
+    # doesn't drag the Windows-only `MetaTrader5` wheel into the Linux image
+    # (that runs in the mt5gateway sidecar under Wine).
+    # Pinned to match the rpyc the mt5linux server runs in the mt5gateway
+    # Wine python (5.2.3). rpyc 5.x/6.x wire protocols are incompatible.
+    "rpyc==5.2.3",
 ]
 
 [project.optional-dependencies]
